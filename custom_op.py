@@ -4,19 +4,6 @@ from paddle.fluid.dygraph import Conv2D, Pool2D, BatchNorm, Linear, Dropout
 import numpy as np
 import copy
 
-class ReflectionPad2d(fluid.dygraph.Layer):
-    def __init__(self, pad_size):
-        super(ReflectionPad2d, self).__init__()
-        self.pad_size = pad_size
-
-    def forward(self, inputs):
-        x = inputs.numpy()
-        out = np.pad(x, 
-            pad_width=((0,0), (0,0), (self.pad_size,self.pad_size), (self.pad_size, self.pad_size)), 
-            mode='reflect')
-        return fluid.dygraph.to_variable(out)
-
-
 class SpectralNormConv2D(fluid.dygraph.Layer):
     def __init__(self, num_channels, num_filters, filter_size, stride, padding, bias_attr):
         super(SpectralNormConv2D, self).__init__()
