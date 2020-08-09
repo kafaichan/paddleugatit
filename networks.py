@@ -54,8 +54,8 @@ class ResnetGenerator(fluid.dygraph.Layer):
 
         cam_logit = fluid.layers.concat(input=[gap_logit, gmp_logit], axis=1)
         x = fluid.layers.concat(input=[gap, gmp], axis=1)
-        self.conv1x1 = Conv2D(num_channels=self.ngf*mult*2, num_filters=self.ngf*mult, filter_size=1, stride=1, bias_attr=False)
-        x = fluid.layers.relu(self.conv1x1(x))
+        x = fluid.layers.conv2d(input=x, num_filters=self.ngf*mult, filter_size=1, stride=1, groups=1, bias_attr=False)
+        x = fluid.layers.relu(x=x)
 
         heatmap = fluid.layers.reduce_sum(x, dim=1, keep_dim=True)
 
@@ -113,18 +113,18 @@ class ResnetBlock(fluid.dygraph.Layer):
 class ResnetAdaILNBlock(fluid.dygraph.Layer):
     def __init__(self, dim, use_bias):
         super(ResnetAdaILNBlock, self).__init__()
-        self.conv1 = Conv2D(dim, dim, filter_size=3, stride=1, padding=0, bias_attr=use_bias)
+        self.dim = dim
+        self.use_bias = use_bias
         self.norm1 = adaILN(dim)
-        self.conv2 = Conv2D(dim, dim, filter_size=3, stride=1, padding=0, bias_attr=use_bias)
         self.norm2 = adaILN(dim)
 
     def forward(self, x, gamma, beta):
         out = fluid.layers.pad2d(input=x, paddings=[1,1,1,1], mode='reflect')
-        out = self.conv1(out)
+        out = fluid.layers.conv2d(input=out, num_filters=self.dim, filter_size=3, stride=1, padding=0, groups=1, bias_attr=self.use_bias)
         out = self.norm1(out, gamma, beta)
         out = fluid.layers.relu(x=out)
         out = fluid.layers.pad2d(input=out, paddings=[1,1,1,1], mode='reflect')
-        out = self.conv2(out)
+        out = fluid.layers.conv2d(input=out, num_filters=self.dim, filter_size=3, stride=1, padding=0, groups=1, bias_attr=self.use_bias)
         out = self.norm2(out, gamma, beta)
         return out + x
 
@@ -140,11 +140,11 @@ class adaILN(fluid.dygraph.Layer):
 
     def forward(self, inputs, gamma, beta):
         in_mean = fluid.layers.reduce_mean(input=inputs, dim=[2,3], keep_dim=True)
-        in_var = to_variable(np.var(inputs.numpy(), axis=(2,3), keepdims=True))
+        in_var = fluid.layers.assign(np.var(inputs.numpy(), axis=(2,3), keepdims=True))
         out_in = (inputs-in_mean) / fluid.layers.sqrt(in_var+self.eps)
 
         ln_mean = fluid.layers.reduce_mean(input=inputs, dim=[1,2,3], keep_dim=True)
-        ln_var = to_variable(np.var(inputs.numpy(), axis=(1,2,3), keepdims=True))
+        ln_var = fluid.layers.assign(np.var(inputs.numpy(), axis=(1,2,3), keepdims=True))
         out_ln = (inputs-ln_mean) / fluid.layers.sqrt(ln_var + self.eps)
 
         out = fluid.layers.expand(x=self.rho, expand_times=[inputs.shape[0], 1, inputs.shape[2], inputs.shape[3]]) * out_in + \
@@ -172,11 +172,11 @@ class ILN(fluid.dygraph.Layer):
 
     def forward(self, inputs):
         in_mean = fluid.layers.reduce_mean(input=inputs, dim=[2,3], keep_dim=True)
-        in_var = to_variable(np.var(inputs.numpy(), axis=(2,3), keepdims=True))
+        in_var = fluid.layers.assign(np.var(inputs.numpy(), axis=(2,3), keepdims=True))
         out_in = (inputs - in_mean) / fluid.layers.sqrt(in_var + self.eps)
 
         ln_mean = fluid.layers.reduce_mean(input=inputs, dim=[1,2,3], keep_dim=True)
-        ln_var = to_variable(np.var(inputs.numpy(), axis=(1,2,3), keepdims=True))
+        ln_var = fluid.layers.assign(np.var(inputs.numpy(), axis=(1,2,3), keepdims=True))
         out_ln = (inputs - ln_mean) / fluid.layers.sqrt(ln_var + self.eps)
 
         out = fluid.layers.expand(x=self.rho, expand_times=[inputs.shape[0], 1, inputs.shape[2], inputs.shape[3]]) * out_in + \

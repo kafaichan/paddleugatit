@@ -18,7 +18,6 @@ class SpectralNormConv2D(fluid.dygraph.Layer):
     def forward(self, inputs):
         norm_weight = fluid.layers.spectral_norm(self.conv.weight).numpy()
         self.conv.weight.set_value(norm_weight)
-
         return self.conv(inputs)
 
 
