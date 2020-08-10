@@ -8,6 +8,9 @@ from networks import *
 from utils import *
 from glob import glob
 
+# https://blog.csdn.net/hua111hua/article/details/89463122
+# https://www.qbitai.com/2019/08/6106.html
+
 class UGATIT(object) :
     def __init__(self, args):
         self.light = args.light
@@ -77,6 +80,57 @@ class UGATIT(object) :
         print("# identity_weight : ", self.identity_weight)
         print("# cam_weight : ", self.cam_weight)
 
+        self.start_program = fluid.default_startup_program()
+        self.generator_program = fluid.Program()
+        self.descriminator_program = fluid.Program()
+        self.test_program = self.generator_program.clone(for_test=True)
+
+
+    def inference_program(self):
+        data_shape = [None, 3, self.img_size, self.img_size]
+        real_A = fluid.data(name='real_A', shape=data_shape, dtype='float32')
+        real_B = fluid.data(name='real_B', shape=data_shape, dtype='float32')
+
+        fake_A2B, _, _ = self.genA2B(real_A)
+        fake_B2A, _, _ = self.genB2A(real_B)
+
+        real_GA_logit, real_GA_cam_logit, _ = self.disGA(real_A)
+        real_LA_logit, real_LA_cam_logit, _ = self.disLA(real_A)
+        real_GB_logit, real_GB_cam_logit, _ = self.disGB(real_B)
+        real_LB_logit, real_LB_cam_logit, _ = self.disLB(real_B)
+
+        fake_GA_logit, fake_GA_cam_logit, _ = self.disGA(fake_B2A)
+        fake_LA_logit, fake_LA_cam_logit, _ = self.disLA(fake_B2A)
+        fake_GB_logit, fake_GB_cam_logit, _ = self.disGB(fake_A2B)
+        fake_LB_logit, fake_LB_cam_logit, _ = self.disLB(fake_A2B)        
+
+        D_ad_loss_GA = fluid.layers.mse_loss(input=real_GA_logit, label=fluid.layers.ones_like(real_GA_logit)) + \
+                       fluid.layers.mse_loss(input=fake_GA_logit, label=fluid.layers.zeros_like(fake_GA_logit))
+        D_ad_cam_loss_GA = fluid.layers.mse_loss(input=real_GA_cam_logit, label=fluid.layers.ones_like(real_GA_cam_logit)) + \
+                           fluid.layers.mse_loss(input=fake_GA_cam_logit, label=fluid.layers.zeros_like(fake_GA_cam_logit))
+        D_ad_loss_LA = fluid.layers.mse_loss(input=real_LA_logit, label=fluid.layers.ones_like(real_LA_logit)) + \
+                       fluid.layers.mse_loss(input=fake_LA_logit, label=fluid.layers.zeros_like(fake_LA_logit))
+        D_ad_cam_loss_LA = fluid.layers.mse_loss(input=real_LA_cam_logit, label=fluid.layers.ones_like(real_LA_cam_logit)) + \
+                           fluid.layers.mse_loss(input=fake_LA_cam_logit, label=fluid.layers.zeros_like(fake_LA_cam_logit))
+        D_ad_loss_GB = fluid.layers.mse_loss(input=real_GB_logit, label=fluid.layers.ones_like(real_GB_logit)) + \
+                       fluid.layers.mse_loss(input=fake_GB_logit, label=fluid.layers.zeros_like(fake_GB_logit))
+        D_ad_cam_loss_GB = fluid.layers.mse_loss(input=real_GB_cam_logit, label=fluid.layers.ones_like(real_GB_cam_logit)) + \
+                           fluid.layers.mse_loss(input=fake_GB_cam_logit, label=fluid.layers.zeros_like(fake_GB_cam_logit))
+        D_ad_loss_LB = fluid.layers.mse_loss(input=real_LB_logit, label=fluid.layers.ones_like(real_LB_logit)) + \
+                       fluid.layers.mse_loss(input=fake_LB_logit, label=fluid.layers.zeros_like(fake_LB_logit))
+        D_ad_cam_loss_LB = fluid.layers.mse_loss(input=real_LB_cam_logit, label=fluid.layers.ones_like(real_LB_cam_logit)) + \
+                           fluid.layers.mse_loss(input=fake_LB_cam_logit, label=fluid.layers.zeros_like(fake_LB_cam_logit))
+
+        D_loss_A = self.adv_weight * (D_ad_loss_GA + D_ad_cam_loss_GA + D_ad_loss_LA + D_ad_cam_loss_LA)
+        D_loss_B = self.adv_weight * (D_ad_loss_GB + D_ad_cam_loss_GB + D_ad_loss_LB + D_ad_cam_loss_LB)
+
+        Discriminator_loss = D_loss_A + D_loss_B
+        self.D_optim.minimize(Discriminator_loss)
+
+
+
+    def train_program(self):
+        predict = self.inference_program()
     ##################################################################################
     # Model
     ##################################################################################
@@ -131,6 +185,10 @@ class UGATIT(object) :
 
     def train(self):
         place = fluid.CUDAPlace(0) if self.device == 'cuda' else fluid.CPUPlace()
+        exe = fluid.Executor(place)
+        
+
+
 
         with fluid.dygraph.guard(place):
             self.genA2B.train(), self.genB2A.train(), self.disGA.train(), self.disGB.train(), self.disLA.train(), self.disLB.train()

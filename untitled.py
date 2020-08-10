@@ -36,9 +36,9 @@ else:
 
     x = fluid.layers.data(name='x', shape=[1], dtype='float32')
     y = fluid.layers.data(name='y', shape=[1], dtype='float32')
-
-    t = MyLinear().forward(x)
-    y_pred = MyLinear().forward(t)
+    rho = fluid.layers.create_parameter(shape=[1], dtype='float32', is_bias=True, name='rho')
+    y_pred = fluid.layers.fc(input=x,size=1,act=None)
+    y_pred = y_pred + rho
 
     cost = fluid.layers.square_error_cost(input=y_pred, label=y)
     avg_cost = fluid.layers.mean(cost)
@@ -52,10 +52,10 @@ else:
 
     for i in range(100):
         outs = exe.run(feed={'x': train_data, 'y': y_true},
-            fetch_list=[y_pred.name, t.name])
+            fetch_list=[y_pred.name])
         #ret = fluid.global_scope().find_var('myfc').get_tensor()
         #print(np.array(ret))
         ret = fluid.global_scope().find_var('rho').get_tensor()
-        print(outs)
+        print(np.array(ret))
 
     fluid.io.save_inference_model(dirname=path, feeded_var_names=['x'], target_vars=[y_pred], executor=exe)
