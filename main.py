@@ -9,10 +9,13 @@ from dataset import MyDatasetReader
 import os
 
 
-def get_params(program, prefix):
+def get_params_by_prefix(program, prefix):
     all_params = program.global_block().all_parameters()
     return [t.name for t in all_params if t.name.startswith(prefix)]
 
+def get_params_by_suffix(program, suffix):
+    all_params = program.global_block().all_parameters()
+    return [t.name for t in all_params if t.name.endswith(suffix)]
 
 ################################################################################################################################################################################################
 args = parse_args()
@@ -62,7 +65,7 @@ with fluid.program_guard(discriminator_program, startup_program):
 
     Discriminator_loss = D_loss_A + D_loss_B
 
-    d_params = get_params(discriminator_program, "D")
+    d_params = get_params_by_prefix(discriminator_program, "D")
     optimizer = fluid.optimizer.AdamOptimizer(learning_rate=args.lr, beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(args.weight_decay), name='dopt')
     optimizer.minimize(Discriminator_loss, parameter_list=d_params)
 
@@ -113,7 +116,7 @@ with fluid.program_guard(generator_program, startup_program):
 
     Generator_loss = G_loss_A + G_loss_B
 
-    g_params = get_params(generator_program, "G")
+    g_params = get_params_by_prefix(generator_program, "G")
     optimizer = fluid.optimizer.AdamOptimizer(learning_rate=args.lr, beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(args.weight_decay), name='gopt')
     optimizer.minimize(Generator_loss, parameter_list=g_params)
 
@@ -159,8 +162,13 @@ if args.phase == 'train' :
         d_loss = exe.run(program=discriminator_program, fetch_list=[Discriminator_loss.name], feed={'real_A': real_A, 'real_B': real_B})
         g_loss = exe.run(program=generator_program, fetch_list=[Generator_loss.name], feed={'real_A': real_A, 'real_B': real_B})
 
+        # Rho Clipping
+        for param in get_params_by_suffix(generator_program, "_rho"):
+            rho = fluid.global_scope().find_var(param).get_tensor()
+            rho.set(np.clip(np.array(rho), 0, 1), place)
 
         print("[%5d/%5d] time: %4.4f d_loss: %.8f, g_loss: %.8f" % (step, args.iteration, time.time() - start_time, d_loss[0], g_loss[0]))
+
 
         if step % args.print_freq == 0:
             A2B = np.zeros((args.img_size * 7, 0, 3))
