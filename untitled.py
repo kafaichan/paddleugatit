@@ -36,7 +36,10 @@ else:
 
     x = fluid.layers.data(name='x', shape=[1], dtype='float32')
     y = fluid.layers.data(name='y', shape=[1], dtype='float32')
+    lr = fluid.layers.data(name='lr', shape=[1], dtype='float32')
+
     rho = fluid.layers.create_parameter(shape=[1], dtype='float32', is_bias=True, name='rho')
+    #fluid.layers.Print(rho)
     y_pred = fluid.layers.fc(input=x,size=1,act=None)
     y_pred = y_pred + rho
 
@@ -50,12 +53,19 @@ else:
     exe = fluid.Executor(cpu)
     exe.run(fluid.default_startup_program())
 
-    for i in range(100):
+    for i in range(5):
         outs = exe.run(feed={'x': train_data, 'y': y_true},
-            fetch_list=[y_pred.name])
+            fetch_list=[y_pred.name, cost.name])
         #ret = fluid.global_scope().find_var('myfc').get_tensor()
         #print(np.array(ret))
         ret = fluid.global_scope().find_var('rho').get_tensor()
-        print(np.array(ret))
+        #print(np.array(ret))
+        ret.set(np.clip(np.array(ret), -0.01, 0.01), cpu)
+        #print(np.array(ret))
+        a, b = np.array(outs)
+        print(a)
+        print("==================")
+        print(b)
+        print("=end=")
 
     fluid.io.save_inference_model(dirname=path, feeded_var_names=['x'], target_vars=[y_pred], executor=exe)

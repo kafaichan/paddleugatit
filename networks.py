@@ -1,3 +1,4 @@
+import paddle
 import paddle.fluid as fluid
 from paddle.fluid.dygraph import Conv2D, Pool2D, BatchNorm, Linear, Dropout, to_variable
 from paddle.fluid.initializer import ConstantInitializer
@@ -71,7 +72,6 @@ def resnet_generator(name, inputs, input_nc, output_nc, ngf=64, n_blocks=6, img_
     x = fluid.layers.conv2d(input=x, num_filters=output_nc, filter_size=7, stride=1, padding=0, groups=1, bias_attr=False)
     out = fluid.layers.tanh(x=x)
 
-    cam_logit = fluid.layers.sigmoid(x=cam_logit)
     return out, cam_logit, heatmap
 
 
@@ -102,16 +102,16 @@ def ada_iln(name, inputs, num_features, gamma, beta, eps=1e-5):
     rho = fluid.layers.create_parameter(shape=[1, num_features, 1, 1], dtype='float32', 
         attr=fluid.ParamAttr(name=name+"_rho"),
         default_initializer=ConstantInitializer(0.9))
+
     in_mean = fluid.layers.reduce_mean(input=inputs, dim=[2,3], keep_dim=True)
-    in_var = fluid.layers.assign(np.var(inputs.numpy(), axis=(2,3), keepdims=True))
+    in_var = variance(inputs=inputs, mean=in_mean, dim=[2,3], keep_dim=True)
     out_in = (inputs-in_mean) / fluid.layers.sqrt(in_var+eps)
 
     ln_mean = fluid.layers.reduce_mean(input=inputs, dim=[1,2,3], keep_dim=True)
-    ln_var = fluid.layers.assign(np.var(inputs.numpy(), axis=(1,2,3), keepdims=True))
+    ln_var = variance(inputs=inputs, mean=ln_mean, dim=[1,2,3], keep_dim=True)
     out_ln = (inputs-ln_mean) / fluid.layers.sqrt(ln_var + eps)
 
-    out = fluid.layers.expand(x=rho, expand_times=[inputs.shape[0], 1, inputs.shape[2], inputs.shape[3]]) * out_in + \
-          fluid.layers.expand(x=(1-rho), expand_times=[inputs.shape[0], 1, inputs.shape[2], inputs.shape[3]]) * out_ln
+    out = rho * out_in + (1-rho) * out_ln   
     out = out * fluid.layers.unsqueeze(gamma, axes=[2,3]) + fluid.layers.unsqueeze(beta, axes=[2,3])
     return out
 
@@ -128,17 +128,15 @@ def iln(name, inputs, num_features, eps=1e-5):
         default_initializer=ConstantInitializer(0.0))
 
     in_mean = fluid.layers.reduce_mean(input=inputs, dim=[2,3], keep_dim=True)
-    in_var = fluid.layers.assign(np.var(inputs.numpy(), axis=(2,3), keepdims=True))
+    in_var = variance(inputs=inputs, mean=in_mean, dim=[2,3], keep_dim=True)
     out_in = (inputs - in_mean) / fluid.layers.sqrt(in_var + eps)
 
     ln_mean = fluid.layers.reduce_mean(input=inputs, dim=[1,2,3], keep_dim=True)
-    ln_var = fluid.layers.assign(np.var(inputs.numpy(), axis=(1,2,3), keepdims=True))
+    ln_var = variance(inputs=inputs, mean=ln_mean, dim=[2,3], keep_dim=True)
     out_ln = (inputs - ln_mean) / fluid.layers.sqrt(ln_var + eps)
 
-    out = fluid.layers.expand(x=rho, expand_times=[inputs.shape[0], 1, inputs.shape[2], inputs.shape[3]]) * out_in + \
-          fluid.layers.expand(x=rho, expand_times=[inputs.shape[0], 1, inputs.shape[2], inputs.shape[3]]) * out_ln
-    out = out * fluid.layers.expand(x=gamma, expand_times=[inputs.shape[0], 1, inputs.shape[2], inputs.shape[3]]) + \
-          fluid.layers.expand(x=beta, expand_times=[inputs.shape[0], 1, inputs.shape[2], inputs.shape[3]])
+    out = rho * out_in + (1-rho) * out_ln
+    out = out * gamma + beta
     return out
 
 
@@ -164,7 +162,7 @@ def spectral_norm_linear(name, x, inputs, in_dim, out_dim):
     return logit, out
 
 
-def descrimninator(name, inputs, input_nc, ndf=64, n_layers=5):
+def discriminator(name, inputs, input_nc, ndf=64, n_layers=5):
     x = fluid.layers.pad2d(input=inputs, paddings=[1,1,1,1], mode='reflect')
     x = spectral_norm_conv2d("{}_speconv_1".format(name), x, input_nc, ndf, 4, 2, 0, True)
     x = fluid.layers.leaky_relu(x=x, alpha=0.2)
@@ -196,6 +194,24 @@ def descrimninator(name, inputs, input_nc, ndf=64, n_layers=5):
     x = fluid.layers.pad2d(input=x, paddings=[1,1,1,1], mode='reflect')
     out = spectral_norm_conv2d("{}_speconv_3".format(name), x, ndf*mult, 1, 4, 1, 0, False)
 
-    cam_logit = fluid.layers.sigmoid(x=cam_logit)
-    out = fluid.layers.sigmoid(x=out)
     return out, cam_logit, heatmap
+
+
+def l1loss(inputs, label):
+    diff = fluid.layers.abs(inputs-label)
+    return fluid.layers.mean(diff)
+
+
+def bce_with_logit_loss(inputs, label, reduction='mean'):
+    out = fluid.layers.sigmoid_cross_entropy_with_logits(inputs, label)
+    if reduction == 'mean':
+        return fluid.layers.reduce_mean(out)
+    elif reduction == 'sum':
+        return fluid.layers.reduce_sum(out)
+    return out
+
+def variance(inputs, mean, dim, keep_dim=True):
+    if keep_dim:
+        deviation = fluid.layers.pow(inputs-mean, 2.0)
+        out = fluid.layers.reduce_mean(deviation, dim=dim, keep_dim=True)
+    return out

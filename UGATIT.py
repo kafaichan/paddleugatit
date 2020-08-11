@@ -11,6 +11,35 @@ from glob import glob
 # https://blog.csdn.net/hua111hua/article/details/89463122
 # https://www.qbitai.com/2019/08/6106.html
 
+
+startup_program = fluid.default_startup_program()
+generator_program = fluid.Program()
+descriminator_program = fluid.Program()
+test_program = self.generator_program.clone(for_test=True)
+args = 
+
+def get_params(program, prefix):
+    all_params = program.global_block().all_parameters()
+    return [t.name for t in all_params if t.name.startswith(prefix)]
+
+
+with fluid.program_guard(descriminator_program, startup_program):
+    data_shape = [None, 3, self.img_size, self.img_size]
+    real_A = fluid.data(name='real_A', shape=data_shape, dtype='float32')
+    real_B = fluid.data(name='real_B', shape=data_shape, dtype='float32')
+
+    resnet_generator(name, inputs, input_nc, output_nc, ngf=64, n_blocks=6, img_size=256, light=False)
+    descrimninator(name, inputs, input_nc, ndf=64, n_layers=5)
+
+
+    genA2B = resnet_generator(name='GA2B', inputs=, input_nc=3, output_nc=3, ngf=ch, n_blocks=self.n_res, img_size=self.img_size, light=self.light)
+    genB2A = ResnetGenerator(input_nc=3, output_nc=3, ngf=self.ch, n_blocks=self.n_res, img_size=self.img_size, light=self.light)
+    disGA = Discriminator(input_nc=3, ndf=self.ch, n_layers=7)
+    disGB = Discriminator(input_nc=3, ndf=self.ch, n_layers=7)
+    disLA = Discriminator(input_nc=3, ndf=self.ch, n_layers=5)
+    disLB = Discriminator(input_nc=3, ndf=self.ch, n_layers=5)
+
+
 class UGATIT(object) :
     def __init__(self, args):
         self.light = args.light
@@ -80,16 +109,11 @@ class UGATIT(object) :
         print("# identity_weight : ", self.identity_weight)
         print("# cam_weight : ", self.cam_weight)
 
-        self.start_program = fluid.default_startup_program()
-        self.generator_program = fluid.Program()
-        self.descriminator_program = fluid.Program()
-        self.test_program = self.generator_program.clone(for_test=True)
+
 
 
     def inference_program(self):
-        data_shape = [None, 3, self.img_size, self.img_size]
-        real_A = fluid.data(name='real_A', shape=data_shape, dtype='float32')
-        real_B = fluid.data(name='real_B', shape=data_shape, dtype='float32')
+
 
         fake_A2B, _, _ = self.genA2B(real_A)
         fake_B2A, _, _ = self.genB2A(real_B)
