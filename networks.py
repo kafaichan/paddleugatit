@@ -145,17 +145,17 @@ def spectral_norm_conv2d(name, inputs, num_channels, num_filters, filter_size, s
         attr=fluid.ParamAttr(name=name+"_w"))
     spec_weight = fluid.layers.spectral_norm(weight=weight)
     if bias_attr:
-        bias = fluid.layers.create_parameter(shape=[num_channels,1], dtype='float32', attr=fluid.ParamAttr(name=name+"_b"))
+        bias = fluid.layers.create_parameter(shape=[num_filters,1], dtype='float32', attr=fluid.ParamAttr(name=name+"_b"))
         spec_bias = fluid.layers.spectral_norm(weight=bias)        
         spec_bias = fluid.layers.squeeze(input=spec_bias, axes=[1])
         out = paddle.nn.functional.conv2d(input=inputs, weight=spec_weight, bias=spec_bias, padding=padding, stride=stride)
     else:
-        out = paddle.nn.functional.conv2d(input=inputs, weight=spec_weight, bias=bias_attr, padding=padding, stride=stride)
+        out = paddle.nn.functional.conv2d(input=inputs, weight=spec_weight, padding=padding, stride=stride)
     return out
 
 
 def spectral_norm_linear(name, x, inputs, in_dim, out_dim):
-    weight = fluid.layers.create_parameter(shape=[in_dim, out_dim], type='float32', attr=fluid.ParamAttr(name=name+"_w"))
+    weight = fluid.layers.create_parameter(shape=[in_dim, out_dim], dtype='float32', attr=fluid.ParamAttr(name=name+"_w"))
     spec_weight = fluid.layers.spectral_norm(weight=weight)
     logit = fluid.layers.mul(x=inputs, y=spec_weight)
     out = x * fluid.layers.unsqueeze(input=fluid.layers.transpose(spec_weight, perm=[1,0]), axes=[2,3])
@@ -187,7 +187,7 @@ def discriminator(name, inputs, input_nc, ndf=64, n_layers=5):
 
     cam_logit = fluid.layers.concat([gap_logit, gmp_logit], 1)
     x = fluid.layers.concat([gap, gmp], 1)
-    x = fluid.layers.conv2d(input=x, num_channels=ndf*mult*2, num_filters=ndf*mult, filter_size=1, stride=1, groups=1, bias_attr=True)
+    x = fluid.layers.conv2d(input=x, num_filters=ndf*mult, filter_size=1, stride=1, groups=1, bias_attr=True)
     x = fluid.layers.leaky_relu(x=x, alpha=0.2)
 
     heatmap = fluid.layers.reduce_sum(x, dim=1, keep_dim=True)

@@ -44,15 +44,19 @@ class MyDatasetReader(object):
             return self.test_transform(img)
 
     def train_transform(self, img):
-        #img = img.resize((self.args.img_size + 30, self.args.img_size+30))
-        #img = img_random_crop(img, self.args.img_size)
+        img = img.resize((self.args.img_size + 30, self.args.img_size+30))
+        img = img_random_crop(img, self.args.img_size)
         img = np.array(img).astype('float32') / 255.0
         img -= np.array([0.5,0.5,0.5])
         img /= np.array([0.5, 0.5, 0.5])
         return img.transpose((2, 0, 1))
 
     def test_transform(self, img):
-        return np.array(img).astype('float32')
+        img = img.resize((self.args.img_size, self.args.img_size))
+        img = np.array(img).astype('float32') / 255.0
+        img -= np.array([0.5,0.5,0.5])
+        img /= np.array([0.5, 0.5, 0.5])
+        return img.transpose((2, 0, 1))
 
 
 def img_random_crop(img, target_size):
