@@ -1,4 +1,3 @@
-from utils import *
 import time
 import paddle
 import paddle.fluid as fluid
@@ -6,6 +5,7 @@ from networks import *
 from utils import *
 from glob import glob
 from dataset import MyDatasetReader
+import paddle.fluid.layers.learning_rate_scheduler as lr_scheduler
 import os
 
 
@@ -23,6 +23,15 @@ args = parse_args()
 startup_program = fluid.default_startup_program()
 generator_program = fluid.Program()
 discriminator_program = fluid.Program()
+
+def get_decayed_lr(lr_init, name):
+    global_step = lr_scheduler._decay_step_counter()
+    lr = fluid.layers.create_global_var(shape=[1], value=float(lr_init), dtype='float32', persistable=True, name=name+'lr')
+
+    if args.decay_flag and global_step > (args.iteration // 2):
+        decayed_lr = lr - (lr_init / (args.iteration // 2)) * (global_step - args.iteration // 2)
+        fluid.layers.assign(decayed_lr, lr)
+    return lr
 
 # Discriminator
 with fluid.program_guard(discriminator_program, startup_program):
@@ -66,7 +75,8 @@ with fluid.program_guard(discriminator_program, startup_program):
     Discriminator_loss = D_loss_A + D_loss_B
 
     d_params = get_params_by_prefix(discriminator_program, "D")
-    optimizer = fluid.optimizer.AdamOptimizer(learning_rate=args.lr, beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(args.weight_decay), name='dopt')
+    lr = get_decayed_lr(lr_init=args.lr, name='dopt')
+    optimizer = fluid.optimizer.AdamOptimizer(learning_rate=lr, beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(args.weight_decay), name='dopt')
     optimizer.minimize(Discriminator_loss, parameter_list=d_params)
 
 
@@ -117,7 +127,8 @@ with fluid.program_guard(generator_program, startup_program):
     Generator_loss = G_loss_A + G_loss_B
 
     g_params = get_params_by_prefix(generator_program, "G")
-    optimizer = fluid.optimizer.AdamOptimizer(learning_rate=args.lr, beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(args.weight_decay), name='gopt')
+    lr = get_decayed_lr(lr_init=args.lr, name='gopt')
+    optimizer = fluid.optimizer.AdamOptimizer(learning_rate=lr, beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(args.weight_decay), name='gopt')
     optimizer.minimize(Generator_loss, parameter_list=g_params)
 
 

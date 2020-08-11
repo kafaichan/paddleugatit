@@ -2,7 +2,6 @@ import paddle
 import paddle.fluid as fluid
 from paddle.fluid.dygraph import Conv2D, Pool2D, BatchNorm, Linear, Dropout, to_variable
 from paddle.fluid.initializer import ConstantInitializer
-import numpy as np
 
 
 def resnet_generator(name, inputs, input_nc, output_nc, ngf=64, n_blocks=6, img_size=256, light=False):
