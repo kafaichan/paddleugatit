@@ -126,7 +126,7 @@ with fluid.program_guard(generator_program, startup_program):
 
     Generator_loss = G_loss_A + G_loss_B
 
-    g_params = get_params_by_prefix(generator_program, "G")
+    g_params = get_params_by_prefix(generator_program, "G")  
     lr = get_decayed_lr(lr_init=args.lr, name='gopt')
     optimizer = fluid.optimizer.AdamOptimizer(learning_rate=lr, beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(args.weight_decay), name='gopt')
     optimizer.minimize(Generator_loss, parameter_list=g_params)
