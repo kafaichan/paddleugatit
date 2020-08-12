@@ -44,8 +44,9 @@ class MyDatasetReader(object):
             return self.test_transform(img)
 
     def train_transform(self, img):
-        #img = img.resize((self.args.img_size + 30, self.args.img_size+30))
-        #img = img_random_crop(img, self.args.img_size)
+        img = random_horizontal_flip(img)
+        img = img.resize((self.args.img_size + 30, self.args.img_size+30))
+        img = img_random_crop(img, self.args.img_size)
         img = np.array(img).astype('float32') / 255.0
         img -= np.array([0.5,0.5,0.5])
         img /= np.array([0.5, 0.5, 0.5])
@@ -58,6 +59,13 @@ class MyDatasetReader(object):
         img /= np.array([0.5, 0.5, 0.5])
         return img.transpose((2, 0, 1))
 
+
+def random_horizontal_flip(img):
+    v = random.random()
+    if v < 0.5:
+        return img.transpose(Image.FLIP_LEFT_RIGHT)
+    else:
+        return img
 
 def img_random_crop(img, target_size):
     w, h = img.size
