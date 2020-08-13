@@ -176,7 +176,10 @@ if args.phase == 'train' :
         # Rho Clipping
         for param in get_params_by_suffix(generator_program, "_rho"):
             rho = fluid.global_scope().find_var(param).get_tensor()
-            rho.set(np.clip(np.array(rho), 0, 1), place)
+            if "ada" in param:
+                rho.set(np.clip(np.array(rho), 0, 0.9), place)
+            else:
+                rho.set(np.clip(np.array(rho), 0, 1), place)
 
         print("[%5d/%5d] time: %4.4f d_loss: %.8f, g_loss: %.8f" % (step, args.iteration, time.time() - start_time, d_loss[0], g_loss[0]))
 
@@ -256,8 +259,8 @@ if args.phase == 'train' :
                                                            cam(tensor2numpy(gen_result[10][0]), args.img_size),
                                                            RGB2BGR(tensor2numpy(denorm(gen_result[11][0])))), 0)), 1)
 
-                cv2.imwrite(os.path.join(args.result_dir, args.dataset, 'img', 'A2B_%07d.png' % step), A2B * 255.0)
-                cv2.imwrite(os.path.join(args.result_dir, args.dataset, 'img', 'B2A_%07d.png' % step), B2A * 255.0)
+                cv2.imwrite(os.path.join(args.result_dir, args.dataset, 'img', 'A2B_%07d.jpg' % step), A2B * 255.0)
+                cv2.imwrite(os.path.join(args.result_dir, args.dataset, 'img', 'B2A_%07d.jpg' % step), B2A * 255.0)
 
         if step % args.save_freq == 0:
             path = os.path.join(args.result_dir, args.dataset, 'model', '%07d' % step)
