@@ -38,7 +38,7 @@ def resnet_generator(name, inputs, input_nc, output_nc, ngf=64, n_blocks=6, img_
 
         cam_logit = fluid.layers.concat(input=[gap_logit, gmp_logit], axis=1)
         x = fluid.layers.concat(input=[gap, gmp], axis=1)
-        x = fluid.layers.conv2d(input=x, num_filters=ngf*mult, filter_size=1, stride=1, groups=1, bias_attr=False)
+        x = fluid.layers.conv2d(input=x, num_filters=ngf*mult, filter_size=1, stride=1, groups=1, bias_attr=True)
         x = fluid.layers.relu(x=x)
 
         heatmap = fluid.layers.reduce_sum(x, dim=1, keep_dim=True)
@@ -147,7 +147,6 @@ def spectral_norm_conv2d(name, inputs, num_channels, num_filters, filter_size, s
     if bias_attr:
         bias = fluid.layers.create_parameter(shape=[num_filters,1], dtype='float32', attr=fluid.ParamAttr(name=name+"_b"))
         spec_bias = fluid.layers.spectral_norm(weight=bias)        
-        spec_bias = fluid.layers.squeeze(input=spec_bias, axes=[1])
         out = paddle.nn.functional.conv2d(input=inputs, weight=spec_weight, bias=spec_bias, padding=padding, stride=stride)
     else:
         out = paddle.nn.functional.conv2d(input=inputs, weight=spec_weight, padding=padding, stride=stride)
