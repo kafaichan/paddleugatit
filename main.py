@@ -2,6 +2,7 @@
 from UGATIT import UGATIT
 import argparse
 from utils import *
+import paddle.fluid as fluid
 
 """parsing and configuration"""
 
@@ -70,7 +71,10 @@ def main():
     gan = UGATIT(args)
 
     # build graph
-    gan.build_model()
+    place = fluid.CUDAPlace(0) if args.device == 'cuda' else fluid.CPUPlace()
+
+    with fluid.dygraph.guard(place):
+        gan.build_model()
 
     if args.phase == 'train' :
         gan.train()

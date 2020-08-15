@@ -1,6 +1,6 @@
-from custom_op import SpectralNormConv2D, SpectralNormLinear
+from custom_op import *
 import paddle.fluid as fluid
-from paddle.fluid.dygraph import Conv2D, Pool2D, BatchNorm, Linear, Dropout, to_variable
+from paddle.fluid.dygraph import Conv2D, Linear, to_variable, InstanceNorm
 from paddle.fluid.initializer import ConstantInitializer
 import numpy as np
 
@@ -16,97 +16,117 @@ class ResnetGenerator(fluid.dygraph.Layer):
         self.img_size = img_size
         self.light = light
 
-        self.n_downsampling = 2
-        mult = 2**self.n_downsampling
-        
-
-    def forward(self, inputs):
-        x = fluid.layers.pad2d(input=inputs, paddings=[3,3,3,3], mode='reflect')
-        x = fluid.layers.conv2d(input=x, num_filters=self.ngf, filter_size=7, stride=1, padding=0, groups=1, bias_attr=False)
-        x = fluid.layers.instance_norm(input=x)
-        x = fluid.layers.relu(x=x)
+        DownBlock = []
+        DownBlock += [ReflectionPad2d(3),
+                      Conv2D(num_channels=input_nc, num_filters=ngf, filter_size=7, stride=1, padding=0, bias_attr=False),
+                      InstanceNorm(ngf),
+                      ReLU()]
 
         # Down-Sampling
-        for i in range(self.n_downsampling):
+        n_downsampling = 2
+        for i in range(n_downsampling):
             mult = 2**i
-            x = fluid.layers.pad2d(input=x, paddings=[1,1,1,1], mode='reflect')
-            x = fluid.layers.conv2d(input=x, num_filters=self.ngf*mult*2, filter_size=3, stride=2, padding=0, groups=1, bias_attr=False)
-            x = fluid.layers.instance_norm(input=x)
-            x = fluid.layers.relu(x=x)
-        
+            DownBlock += [ReflectionPad2d(1),
+                          Conv2D(num_channels=ngf*mult, num_filters=ngf*mult*2, filter_size=3, stride=2, padding=0, bias_attr=False),
+                          InstanceNorm(ngf * mult * 2),
+                          ReLU()]
+
         # Down-Sampling Bottleneck
-        mult = 2**self.n_downsampling
-        for i in range(self.n_blocks):
-            x = ResnetBlock(self.ngf*mult, use_bias=False)(x)
+        mult = 2**n_downsampling
+        for i in range(n_blocks):
+            DownBlock += [ResnetBlock(ngf*mult, use_bias=False)]
+
+        # Class Activation Map
+        self.gap_fc = Linear(ngf*mult, 1, bias_attr=False)
+        self.gmp_fc = Linear(ngf*mult, 1, bias_attr=False)
+        self.conv1x1 = Conv2D(ngf*mult*2, ngf*mult, filter_size=1, stride=1, bias_attr=True)
+        self.relu = ReLU()
+
+        # Gamma, Beta block
+        if self.light:
+            FC = [Linear(ngf * mult, ngf * mult, bias_attr=False, act='relu'),
+                  Linear(ngf * mult, ngf * mult, bias_attr=False, act='relu')]
+        else:
+            FC = [Linear(img_size // mult * img_size // mult * ngf * mult, ngf * mult, bias_attr=False, act='relu'),
+                  Linear(ngf * mult, ngf * mult, bias_attr=False, act='relu')]
+        self.gamma = Linear(ngf * mult, ngf * mult, bias_attr=False)
+        self.beta = Linear(ngf * mult, ngf * mult, bias_attr=False)
+
+        # Up-Sampling Bottleneck
+        for i in range(n_blocks):
+            setattr(self, 'UpBlock1_' + str(i+1), ResnetAdaILNBlock(ngf * mult, use_bias=False))
+
+        # Up-Sampling
+        UpBlock2 = []
+        for i in range(n_downsampling):
+            mult = 2**(n_downsampling - i)
+            UpBlock2 += [Upsample(scale_factor=2, mode='NEAREST'),
+                         ReflectionPad2d(1),
+                         Conv2D(ngf * mult, int(ngf * mult / 2), filter_size=3, stride=1, padding=0, bias_attr=False),
+                         ILN(int(ngf * mult / 2)),
+                         ReLU()]
+
+        UpBlock2 += [ReflectionPad2d(3),
+                     Conv2D(ngf, output_nc, filter_size=7, stride=1, padding=0, bias_attr=False),
+                     Tanh()]
+
+        self.DownBlock = fluid.dygraph.Sequential(*DownBlock)
+        self.FC = fluid.dygraph.Sequential(*FC)
+        self.UpBlock2 = fluid.dygraph.Sequential(*UpBlock2)
+
+    def forward(self, inputs):
+        x = self.DownBlock(inputs)
 
         gap = fluid.layers.adaptive_pool2d(input=x, pool_size=1, pool_type='avg')
-        self.gap_linear = Linear(input_dim=self.ngf*mult, output_dim=1, bias_attr=False)
-        gap_logit = self.gap_linear(fluid.layers.reshape(x=gap, shape=[x.shape[0], -1]))
-        gap_weight = fluid.layers.transpose(list(self.gap_linear.parameters())[0], perm=[1,0])
-        gap = x * fluid.layers.unsqueeze(gap_weight, axes=[2,3])
-
+        gap_logit = self.gap_fc(fluid.layers.reshape(x=gap, shape=(x.shape[0], -1)))
+        gap = x * fluid.layers.unsqueeze(fluid.layers.transpose(self.gap_fc.weight, perm=[1,0]), axes=[2,3])
 
         gmp = fluid.layers.adaptive_pool2d(input=x, pool_size=1, pool_type='max')
-        self.gmp_linear = Linear(input_dim=self.ngf*mult, output_dim=1, bias_attr=False)
-        gmp_logit = self.gmp_linear(fluid.layers.reshape(x=gmp, shape=[x.shape[0], -1]))
-        gmp_weight = fluid.layers.transpose(list(self.gmp_linear.parameters())[0], perm=[1,0])
-        gmp = x * fluid.layers.unsqueeze(gmp_weight, axes=[2,3])
+        gmp_logit = self.gmp_fc(fluid.layers.reshape(x=gmp, shape=(x.shape[0], -1)))
+        gmp = x * fluid.layers.unsqueeze(fluid.layers.transpose(self.gmp_fc.weight, perm=[1,0]), axes=[2,3])
 
         cam_logit = fluid.layers.concat(input=[gap_logit, gmp_logit], axis=1)
         x = fluid.layers.concat(input=[gap, gmp], axis=1)
-        x = fluid.layers.conv2d(input=x, num_filters=self.ngf*mult, filter_size=1, stride=1, groups=1, bias_attr=False)
-        x = fluid.layers.relu(x=x)
-
+        x = self.relu(self.conv1x1(x))
         heatmap = fluid.layers.reduce_sum(x, dim=1, keep_dim=True)
 
         if self.light:
             x_ = fluid.layers.adaptive_pool2d(input=x, pool_size=1, pool_type='avg')
-            x_ = fluid.layers.fc(input=x_, size=self.ngf*mult, bias_attr=False)
-            x_ = fluid.layers.relu(x=x_)
-            x_ = fluid.layers.fc(input=x_, size=self.ngf*mult, bias_attr=False)
-            x_ = fluid.layers.relu(x=x_)
+            x_ = self.FC(fluid.layers.reshape(x=x_, shape=(x_.shape[0], -1)))
         else:
-            x_ = fluid.layers.fc(input=x, size=self.ngf*mult, bias_attr=False)
-            x_ = fluid.layers.relu(x=x_)
-            x_ = fluid.layers.fc(input=x_, size=self.ngf*mult, bias_attr=False)
-            x_ = fluid.layers.relu(x=x_)
-        gamma = fluid.layers.fc(input=x_, size=self.ngf*mult, bias_attr=False)
-        beta = fluid.layers.fc(input=x_, size=self.ngf*mult, bias_attr=False)
+            x_ = self.FC(fluid.layers.reshape(x=x, shape=(x.shape[0], -1)))
+
+        gamma, beta = self.gamma(x_), self.beta(x_)
 
         for i in range(self.n_blocks):
-            x = ResnetAdaILNBlock(self.ngf*mult, use_bias=False)(x, gamma, beta)
-        
-        # Upblock 2
-        for i in range(self.n_downsampling):
-            mult = 2 ** (self.n_downsampling-i)
-            x = fluid.layers.image_resize(input=x, scale=2, resample='NEAREST')
-            x = fluid.layers.pad2d(input=x, paddings=[1,1,1,1], mode='reflect')
-            x = fluid.layers.conv2d(input=x, num_filters=int(self.ngf*mult/2), filter_size=3, stride=1, padding=0, groups=1, bias_attr=False)
-            x = ILN(int(self.ngf*mult/2))(x)
-            x = fluid.layers.relu(x=x)
+            x = getattr(self, 'UpBlock1_' + str(i+1))(x, gamma, beta)
 
-        x = fluid.layers.pad2d(input=x, paddings=[3,3,3,3], mode='reflect')
-        x = fluid.layers.conv2d(input=x, num_filters=self.output_nc, filter_size=7, stride=1, padding=0, groups=1, bias_attr=False)
-        out = fluid.layers.tanh(x=x)
-
-        cam_logit = fluid.layers.sigmoid(x=cam_logit)
+        out = self.UpBlock2(x)
         return out, cam_logit, heatmap
+
+    def clip_rho(self, vmin=0, vmax=1):
+        for name, param in self.named_parameters():
+            if 'rho' in name:
+                param.set_value(fluid.layers.clip(param, vmin, vmax))
+
 
 class ResnetBlock(fluid.dygraph.Layer):
     def __init__(self, dim, use_bias):
         super(ResnetBlock, self).__init__()
-        self.dim = dim
-        self.use_bias = use_bias
+        conv_block = []
+        conv_block += [ReflectionPad2d(1),
+                       Conv2D(num_channels=dim, num_filters=dim, filter_size=3, stride=1, padding=0, bias_attr=use_bias),
+                       InstanceNorm(dim),
+                       ReLU()]
 
-    def forward(self, inputs):
-        x = fluid.layers.pad2d(input=inputs, paddings=[1,1,1,1], mode='reflect')
-        x = fluid.layers.conv2d(input=x, num_filters=self.dim, filter_size=3, stride=1, padding=0, groups=1, bias_attr=self.use_bias)
-        x = fluid.layers.instance_norm(input=x)
-        x = fluid.layers.relu(x=x)
-        x = fluid.layers.pad2d(input=x, paddings=[1,1,1,1], mode='reflect')
-        x = fluid.layers.conv2d(input=x, num_filters=self.dim, filter_size=3, stride=1, padding=0, groups=1, bias_attr=self.use_bias)
-        x = fluid.layers.instance_norm(input=x)
-        out = inputs + x
+        conv_block += [ReflectionPad2d(1),
+                       Conv2D(num_channels=dim, num_filters=dim, filter_size=3, stride=1, padding=0, bias_attr=use_bias),
+                       InstanceNorm(dim)]
+
+        self.conv_block = fluid.dygraph.Sequential(*conv_block)
+
+    def forward(self, x):
+        out = x + self.conv_block(x)
         return out
 
 
@@ -140,20 +160,16 @@ class adaILN(fluid.dygraph.Layer):
 
     def forward(self, inputs, gamma, beta):
         in_mean = fluid.layers.reduce_mean(input=inputs, dim=[2,3], keep_dim=True)
-        in_var = fluid.layers.assign(np.var(inputs.numpy(), axis=(2,3), keepdims=True))
+        in_var = fluid.layers.reduce_mean(fluid.layers.pow(inputs-in_mean, 2.0), dim=[2,3], keep_dim=True)
         out_in = (inputs-in_mean) / fluid.layers.sqrt(in_var+self.eps)
 
         ln_mean = fluid.layers.reduce_mean(input=inputs, dim=[1,2,3], keep_dim=True)
-        ln_var = fluid.layers.assign(np.var(inputs.numpy(), axis=(1,2,3), keepdims=True))
+        ln_var = fluid.layers.reduce_mean(fluid.layers.pow(inputs-ln_mean, 2.0), dim=[1,2,3], keep_dim=True)
         out_ln = (inputs-ln_mean) / fluid.layers.sqrt(ln_var + self.eps)
 
-        out = fluid.layers.expand(x=self.rho, expand_times=[inputs.shape[0], 1, inputs.shape[2], inputs.shape[3]]) * out_in + \
-              fluid.layers.expand(x=(1-self.rho), expand_times=[inputs.shape[0], 1, inputs.shape[2], inputs.shape[3]]) * out_ln
+        out = self.rho*out_in +  (1-self.rho)*out_ln
         out = out * fluid.layers.unsqueeze(gamma, axes=[2,3]) + fluid.layers.unsqueeze(beta, axes=[2,3])
         return out
-    
-    def clip_rho(self, rho_clipper):
-        self.rho.set_value(rho_clipper(self.rho))
 
 
 class ILN(fluid.dygraph.Layer):
@@ -161,90 +177,78 @@ class ILN(fluid.dygraph.Layer):
         super(ILN, self).__init__()
         self.eps = eps
         self.add_parameter('rho', fluid.layers.create_parameter(
-            shape=[1, num_features, 1, 1], dtype='float32',#))
+            shape=[1, num_features, 1, 1], dtype='float32',
             default_initializer=ConstantInitializer(0.0)))
         self.add_parameter('gamma', fluid.layers.create_parameter(
-            shape=[1, num_features, 1, 1], dtype='float32',#))
+            shape=[1, num_features, 1, 1], dtype='float32',
             default_initializer=ConstantInitializer(1.0)))
         self.add_parameter('beta', fluid.layers.create_parameter(
-            shape=[1, num_features, 1, 1], dtype='float32',#))
+            shape=[1, num_features, 1, 1], dtype='float32',
             default_initializer=ConstantInitializer(0.0)))
 
     def forward(self, inputs):
         in_mean = fluid.layers.reduce_mean(input=inputs, dim=[2,3], keep_dim=True)
-        in_var = fluid.layers.assign(np.var(inputs.numpy(), axis=(2,3), keepdims=True))
+        in_var = fluid.layers.reduce_mean(fluid.layers.pow(inputs-in_mean, 2.0), dim=[2,3], keep_dim=True)
         out_in = (inputs - in_mean) / fluid.layers.sqrt(in_var + self.eps)
 
         ln_mean = fluid.layers.reduce_mean(input=inputs, dim=[1,2,3], keep_dim=True)
-        ln_var = fluid.layers.assign(np.var(inputs.numpy(), axis=(1,2,3), keepdims=True))
+        ln_var = fluid.layers.reduce_mean(fluid.layers.pow(inputs-ln_mean, 2.0), dim=[1,2,3], keep_dim=True)
         out_ln = (inputs - ln_mean) / fluid.layers.sqrt(ln_var + self.eps)
 
-        out = fluid.layers.expand(x=self.rho, expand_times=[inputs.shape[0], 1, inputs.shape[2], inputs.shape[3]]) * out_in + \
-              fluid.layers.expand(x=self.rho, expand_times=[inputs.shape[0], 1, inputs.shape[2], inputs.shape[3]]) * out_ln
-        out = out * fluid.layers.expand(x=self.gamma, expand_times=[inputs.shape[0], 1, inputs.shape[2], inputs.shape[3]]) + \
-              fluid.layers.expand(x=self.beta, expand_times=[inputs.shape[0], 1, inputs.shape[2], inputs.shape[3]])
+        out = self.rho*out_in + (1-self.rho)*out_ln
+        out = out*self.gamma + self.beta
         return out
-
-    def clip_rho(self, rho_clipper):
-        self.rho.set_value(rho_clipper(self.rho))
 
 
 class Discriminator(fluid.dygraph.Layer):
     def __init__(self, input_nc, ndf=64, n_layers=5):
         super(Discriminator, self).__init__()
-        self.input_nc = input_nc
-        self.ndf = ndf
-        self.n_layers = n_layers
+        model = [ReflectionPad2d(1),
+                 SpectralNorm(Conv2D(input_nc, ndf, filter_size=4, stride=2, padding=0, bias_attr=True)),
+                 LeakyReLU(0.2)]
+
+        for i in range(1, n_layers - 2):
+            mult = 2 ** (i - 1)
+            model += [ReflectionPad2d(1),
+                      SpectralNorm(Conv2D(ndf * mult, ndf * mult * 2, filter_size=4, stride=2, padding=0,
+                        bias_attr=fluid.ParamAttr(initializer=fluid.initializer.NormalInitializer(loc=0.0, scale=0.02)))),
+                      LeakyReLU(0.2)]
+
+        mult = 2 ** (n_layers - 2 - 1)
+        model += [ReflectionPad2d(1),
+                  SpectralNorm(Conv2D(ndf * mult, ndf * mult * 2, filter_size=4, stride=1, padding=0, 
+                    bias_attr=fluid.ParamAttr(initializer=fluid.initializer.NormalInitializer(loc=0.0, scale=0.02)))),
+                  LeakyReLU(0.2)]
+
+        # Class Activation Map
+        mult = 2 ** (n_layers - 2)
+        self.gap_fc = SpectralNorm(Linear(ndf * mult, 1, bias_attr=False))
+        self.gmp_fc = SpectralNorm(Linear(ndf * mult, 1, bias_attr=False))
+        self.conv1x1 = Conv2D(ndf * mult * 2, ndf * mult, filter_size=1, stride=1, bias_attr=True)
+        self.leaky_relu = LeakyReLU(0.2)
+
+        self.pad = ReflectionPad2d(1)
+        self.conv = SpectralNorm(Conv2D(ndf * mult, 1, filter_size=4, stride=1, padding=0, bias_attr=False))
+
+        self.model = fluid.dygraph.Sequential(*model)
 
     def forward(self, inputs):
-        x = fluid.layers.pad2d(input=inputs, paddings=[1,1,1,1], mode='reflect')
-        x = SpectralNormConv2D(self.input_nc, self.ndf, 4, 2, 0, True)(x)
-        x = fluid.layers.leaky_relu(x=x, alpha=0.2)
-
-        for i in range(1, self.n_layers - 2):
-            mult = 2 ** (i - 1)
-            x = fluid.layers.pad2d(input=x, paddings=[1,1,1,1], mode='reflect')
-            x = SpectralNormConv2D(self.ndf*mult, self.ndf*mult*2, filter_size=4, stride=2, padding=0, bias_attr=True)(x)
-            x = fluid.layers.leaky_relu(x=x, alpha=0.2)
-
-        mult = 2 ** (self.n_layers - 2 - 1)
-        x = fluid.layers.pad2d(input=x, paddings=[1,1,1,1], mode='reflect')
-        x = SpectralNormConv2D(self.ndf*mult, self.ndf*mult*2, filter_size=4, stride=1, padding=0, bias_attr=True)(x)
-        x = fluid.layers.leaky_relu(x=x, alpha=0.2)
-
-        mult = 2 ** (self.n_layers - 2)
+        x = self.model(inputs)
         gap = fluid.layers.adaptive_pool2d(x, pool_size=1, pool_type='avg')
-        self.gap_fc = SpectralNormLinear(self.ndf*mult, 1, bias_attr=False)
-        gap_logit = self.gap_fc(fluid.layers.reshape(x=gap, shape=[x.shape[0], -1]))
-        gap_weight = fluid.layers.transpose(list(self.gap_fc.parameters())[0], perm=[1,0])
-        gap = x * fluid.layers.unsqueeze(input=gap_weight, axes=[2,3])
+        gap_logit = self.gap_fc(fluid.layers.reshape(x=gap, shape=(x.shape[0], -1)))
+        gap = x * fluid.layers.unsqueeze(input=fluid.layers.transpose(self.gap_fc.layer.weight, perm=[1,0]), axes=[2,3])
 
         gmp = fluid.layers.adaptive_pool2d(x, pool_size=1, pool_type='max')
-        self.gmp_fc = SpectralNormLinear(self.ndf*mult, 1, bias_attr=False)
-        gmp_logit = self.gmp_fc(fluid.layers.reshape(x=gmp, shape=[x.shape[0], -1]))
-        gmp_weight = fluid.layers.transpose(list(self.gmp_fc.parameters())[0], perm=[1,0])
-        gmp = x * fluid.layers.unsqueeze(input=gmp_weight, axes=[2,3])
+        gmp_logit = self.gmp_fc(fluid.layers.reshape(x=gmp, shape=(x.shape[0], -1)))
+        gmp = x * fluid.layers.unsqueeze(input=fluid.layers.transpose(self.gmp_fc.layer.weight, perm=[1,0]), axes=[2,3])
 
         cam_logit = fluid.layers.concat([gap_logit, gmp_logit], 1)
         x = fluid.layers.concat([gap, gmp], 1)
-        x = Conv2D(self.ndf * mult * 2, self.ndf * mult, filter_size=1, stride=1, bias_attr=True)(x)       
-        x = fluid.layers.leaky_relu(x=x, alpha=0.2)
+        x = self.leaky_relu(self.conv1x1(x))
 
         heatmap = fluid.layers.reduce_sum(x, dim=1, keep_dim=True)
-        
-        x = fluid.layers.pad2d(input=x, paddings=[1,1,1,1], mode='reflect')
-        out = SpectralNormConv2D(self.ndf * mult, 1, filter_size=4, stride=1, padding=0, bias_attr=True)(x)
 
-        cam_logit = fluid.layers.sigmoid(x=cam_logit)
-        out = fluid.layers.sigmoid(x=out)
+        x = self.pad(x)
+        out = self.conv(x)
+
         return out, cam_logit, heatmap
-
-
-class RhoClipper(object):
-    def __init__(self, min, max):
-        self.clip_min = min
-        self.clip_max = max
-        assert min < max
-
-    def __call__(self, weight):
-        return fluid.layers.clamp(weight, self.clip_min, self.clip_max)

@@ -1,6 +1,7 @@
 import paddle
 import paddle.fluid as fluid
-from paddle.fluid.dygraph import Conv2D, Pool2D, BatchNorm, Linear, Dropout, to_variable
+from paddle.fluid.dygraph import to_variable
+from custom_op import L1Loss, BCEWithLogitsLoss, LinearLrCoolDown
 
 import time, itertools
 from dataset import MyDatasetReader
@@ -28,7 +29,6 @@ class UGATIT(object) :
         self.print_freq = args.print_freq
         self.save_freq = args.save_freq
 
-        self.lr = args.lr
         self.weight_decay = args.weight_decay
         self.ch = args.ch
 
@@ -83,18 +83,6 @@ class UGATIT(object) :
 
     def build_model(self):
         """ DataLoader """
-        # train_transform = transforms.Compose([
-        #     transforms.RandomHorizontalFlip(),
-        #     transforms.Resize((self.img_size + 30, self.img_size+30)),
-        #     transforms.RandomCrop(self.img_size),
-        #     transforms.ToTensor(),
-        #     transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
-        # ])
-        # test_transform = transforms.Compose([
-        #     transforms.Resize((self.img_size, self.img_size)),
-        #     transforms.ToTensor(),
-        #     transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
-        # ])
         self.trainA = MyDatasetReader(os.path.join('dataset', self.dataset, 'trainA'), self.args).create_reader()
         self.trainB = MyDatasetReader(os.path.join('dataset', self.dataset, 'trainB'), self.args).create_reader()
         self.testA = MyDatasetReader(os.path.join('dataset', self.dataset, 'testA'), self.args).create_reader()
@@ -113,20 +101,37 @@ class UGATIT(object) :
         self.disLB = Discriminator(input_nc=3, ndf=self.ch, n_layers=5)
 
         """ Define Loss """
-        self.L1_loss = fluid.dygraph.L1Loss()
+        self.L1_loss = L1Loss()
         self.MSE_loss = fluid.dygraph.MSELoss()
-        self.BCE_loss = fluid.dygraph.BCELoss()
+        self.BCE_loss = BCEWithLogitsLoss()
 
         """ Trainer """
-        self.G_optim = fluid.optimizer.AdamOptimizer(learning_rate=self.lr, 
-            parameter_list=itertools.chain(self.genA2B.parameters(), self.genB2A.parameters()), 
-            beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
-        self.D_optim = fluid.optimizer.AdamOptimizer(learning_rate=self.lr,
-            parameter_list=itertools.chain(self.disGA.parameters(), self.disGB.parameters(), self.disLA.parameters(), self.disLB.parameters()), 
-            beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
+        self.start_iter = 1
+        if self.resume:
+            print(os.path.join(self.result_dir, self.dataset, 'model', '*.pdparams'))
+            model_list = glob(os.path.join(self.result_dir, self.dataset, 'model', '*.pdparams'))
+            if not len(model_list) == 0:
+                model_list.sort()
+                self.start_iter = int(model_list[-1].split('_')[-1].split('.')[0])
+                self.load(os.path.join(self.result_dir, self.dataset, 'model'), self.start_iter)
+                print(" [*] Load SUCCESS")
 
-        """ Define Rho clipper to constraint the value of rho in AdaILN and ILN"""
-        self.Rho_clipper = RhoClipper(0, 1)
+        if self.args.decay_flag:
+            self.G_optim = fluid.optimizer.AdamOptimizer(learning_rate=LinearLrCoolDown(self.args.lr, self.args.iteration // 2, begin=self.start_iter), 
+                parameter_list=list(itertools.chain(self.genA2B.parameters(), self.genB2A.parameters())), 
+                beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
+
+            self.D_optim = fluid.optimizer.AdamOptimizer(learning_rate=LinearLrCoolDown(self.args.lr, self.args.iteration // 2, begin=self.start_iter),
+                parameter_list=list(itertools.chain(self.disGA.parameters(), self.disGB.parameters(), self.disLA.parameters(), self.disLB.parameters())), 
+                beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
+        else:
+            self.G_optim = fluid.optimizer.AdamOptimizer(learning_rate=self.args.lr,
+                parameter_list=list(itertools.chain(self.genA2B.parameters(), self.genB2A.parameters())), 
+                beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
+
+            self.D_optim = fluid.optimizer.AdamOptimizer(learning_rate=self.lr,
+                parameter_list=list(itertools.chain(self.disGA.parameters(), self.disGB.parameters(), self.disLA.parameters(), self.disLB.parameters())), 
+                beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
 
 
     def train(self):
@@ -135,27 +140,10 @@ class UGATIT(object) :
         with fluid.dygraph.guard(place):
             self.genA2B.train(), self.genB2A.train(), self.disGA.train(), self.disGB.train(), self.disLA.train(), self.disLB.train()
 
-            start_iter = 1
-            if self.resume:
-                print(os.path.join(self.result_dir, self.dataset, 'model', '*.pdparams'))
-                model_list = glob(os.path.join(self.result_dir, self.dataset, 'model', '*.pdparams'))
-                if not len(model_list) == 0:
-                    model_list.sort()
-                    start_iter = int(model_list[-1].split('_')[-1].split('.')[0])
-                    self.load(os.path.join(self.result_dir, self.dataset, 'model'), start_iter)
-                    print(" [*] Load SUCCESS")
-                    # if self.decay_flag and start_iter > (self.iteration // 2):
-                    #     self.G_optim.param_groups[0]['lr'] -= (self.lr / (self.iteration // 2)) * (start_iter - self.iteration // 2)
-                    #     self.D_optim.param_groups[0]['lr'] -= (self.lr / (self.iteration // 2)) * (start_iter - self.iteration // 2)
-
             # training loop
             print('training start !')
             start_time = time.time()
-            for step in range(start_iter, self.iteration + 1):
-                # if self.decay_flag and step > (self.iteration // 2):
-                #     self.G_optim.param_groups[0]['lr'] -= (self.lr / (self.iteration // 2))
-                #     self.D_optim.param_groups[0]['lr'] -= (self.lr / (self.iteration // 2))
-
+            for step in range(self.start_iter, self.iteration + 1):
                 try:
                     real_A, _ = zip(*next(self.trainA_loader()))
                 except:
@@ -172,12 +160,10 @@ class UGATIT(object) :
                 real_B = np.array(real_B)
                 real_A, real_B = to_variable(real_A), to_variable(real_B)
 
+
+                self.D_optim.clear_gradients()
                 fake_A2B, _, _ = self.genA2B(real_A)
-                #print(fake_A2B.shape)
-                #print("-----------------------")
                 fake_B2A, _, _ = self.genB2A(real_B)
-                #print(fake_B2A.shape)
-                #print("-----------------------")
 
                 real_GA_logit, real_GA_cam_logit, _ = self.disGA(real_A)
                 real_LA_logit, real_LA_cam_logit, _ = self.disLA(real_A)
@@ -204,38 +190,20 @@ class UGATIT(object) :
                 Discriminator_loss = D_loss_A + D_loss_B
 
                 # Update D
-                self.disGA.clear_gradients()
-                self.disGB.clear_gradients()
-                self.disLA.clear_gradients()
-                self.disLB.clear_gradients()
                 Discriminator_loss.backward()
                 self.D_optim.minimize(Discriminator_loss)
 
                 # Update G
-                self.genA2B.clear_gradients()
-                self.genB2A.clear_gradients()
-
+                self.G_optim.clear_gradients()
 
                 fake_A2B, fake_A2B_cam_logit, _ = self.genA2B(real_A)
-                #print(fake_A2B.shape)
-                #print("-----------------------")
                 fake_B2A, fake_B2A_cam_logit, _ = self.genB2A(real_B)
-                #print(fake_B2A.shape)
-                #print("-----------------------")
 
                 fake_A2B2A, _, _ = self.genB2A(fake_A2B)
-                #print(fake_A2B2A.shape)
-                #print("-----------------------")
                 fake_B2A2B, _, _ = self.genA2B(fake_B2A)
-                #print(fake_B2A2B.shape)
-                #print("-----------------------")
 
-                fake_A2A, fake_A2A_cam_logit, _ = self.genB2A(real_A)
-                #print(fake_A2A.shape)
-                #print("-----------------------")                
+                fake_A2A, fake_A2A_cam_logit, _ = self.genB2A(real_A)            
                 fake_B2B, fake_B2B_cam_logit, _ = self.genA2B(real_B)
-                #print(fake_B2B.shape)
-                #print("-----------------------")
 
                 fake_GA_logit, fake_GA_cam_logit, _ = self.disGA(fake_B2A)
                 fake_LA_logit, fake_LA_cam_logit, _ = self.disLA(fake_B2A)
@@ -243,50 +211,32 @@ class UGATIT(object) :
                 fake_LB_logit, fake_LB_cam_logit, _ = self.disLB(fake_A2B)
 
                 G_ad_loss_GA = self.MSE_loss(fake_GA_logit, fluid.layers.ones_like(fake_GA_logit))
-                #print(fake_GA_logit.numpy())
-                #print(G_ad_loss_GA.numpy())
+
                 G_ad_cam_loss_GA = self.MSE_loss(fake_GA_cam_logit, fluid.layers.ones_like(fake_GA_cam_logit))
-                #print(G_ad_cam_loss_GA.numpy())
                 G_ad_loss_LA = self.MSE_loss(fake_LA_logit, fluid.layers.ones_like(fake_LA_logit))
-                #print(G_ad_loss_LA.numpy())
                 G_ad_cam_loss_LA = self.MSE_loss(fake_LA_cam_logit, fluid.layers.ones_like(fake_LA_cam_logit))
-                #print(G_ad_cam_loss_LA.numpy())
                 G_ad_loss_GB = self.MSE_loss(fake_GB_logit, fluid.layers.ones_like(fake_GB_logit))
-                #print(G_ad_loss_GB.numpy())       
                 G_ad_cam_loss_GB = self.MSE_loss(fake_GB_cam_logit, fluid.layers.ones_like(fake_GB_cam_logit))
-                #print(G_ad_cam_loss_GB.numpy())       
                 G_ad_loss_LB = self.MSE_loss(fake_LB_logit, fluid.layers.ones_like(fake_LB_logit))
-                #print(G_ad_loss_LB.numpy())
                 G_ad_cam_loss_LB = self.MSE_loss(fake_LB_cam_logit, fluid.layers.ones_like(fake_LB_cam_logit))
-                #print(G_ad_cam_loss_LB.numpy())
 
                 G_recon_loss_A = self.L1_loss(fake_A2B2A, real_A)
-                #print(G_recon_loss_A.numpy())
                 G_recon_loss_B = self.L1_loss(fake_B2A2B, real_B)
-                #print(G_recon_loss_B.numpy())
 
                 G_identity_loss_A = self.L1_loss(fake_A2A, real_A)
-                #print(G_identity_loss_A.numpy())                
                 G_identity_loss_B = self.L1_loss(fake_B2B, real_B)
-                #print(G_identity_loss_B.numpy())
 
                 G_cam_loss_A = self.BCE_loss(fake_B2A_cam_logit, fluid.layers.ones_like(fake_B2A_cam_logit)) + self.BCE_loss(fake_A2A_cam_logit, fluid.layers.zeros_like(fake_A2A_cam_logit))
-                #print(G_cam_loss_A.numpy())
                 G_cam_loss_B = self.BCE_loss(fake_A2B_cam_logit, fluid.layers.ones_like(fake_A2B_cam_logit)) + self.BCE_loss(fake_B2B_cam_logit, fluid.layers.zeros_like(fake_B2B_cam_logit))
-                #print(G_cam_loss_A.numpy())
                 G_loss_A =  self.adv_weight * (G_ad_loss_GA + G_ad_cam_loss_GA + G_ad_loss_LA + G_ad_cam_loss_LA) + self.cycle_weight * G_recon_loss_A + self.identity_weight * G_identity_loss_A + self.cam_weight * G_cam_loss_A
-                #print(G_loss_A.numpy())
                 G_loss_B = self.adv_weight * (G_ad_loss_GB + G_ad_cam_loss_GB + G_ad_loss_LB + G_ad_cam_loss_LB) + self.cycle_weight * G_recon_loss_B + self.identity_weight * G_identity_loss_B + self.cam_weight * G_cam_loss_B
-                #print(G_loss_B.numpy())
 
                 Generator_loss = G_loss_A + G_loss_B
-                #print(Generator_loss.numpy())
                 Generator_loss.backward()
                 self.G_optim.minimize(Generator_loss)
 
-                # clip parameter of AdaILN and ILN, applied after optimizer step
-                #self.genA2B.apply(self.Rho_clipper)
-                #self.genB2A.apply(self.Rho_clipper)
+                self.genA2B.clip_rho(0, 1.0)
+                self.genB2A.clip_rho(0, 1.0)
 
                 print("[%5d/%5d] time: %4.4f d_loss: %.8f, g_loss: %.8f" % (step, self.iteration, time.time() - start_time, Discriminator_loss.numpy(), Generator_loss.numpy()))
                 if step % self.print_freq == 0:
@@ -405,37 +355,39 @@ class UGATIT(object) :
         fluid.dygraph.save_dygraph(self.disLB.state_dict(), os.path.join(dir, 'dislb_params_%07d' % step))
 
     def load(self, dir, step):
-        genA2B_param = fluid.dygraph.load_dygraph(os.path.join(dir, 'gena2b_params_%07d' % step))
-        genB2A_param = fluid.dygraph.load_dygraph(os.path.join(dir, 'genb2a_params_%07d' % step))
-        disGA_param = fluid.dygraph.load_dygraph(os.path.join(dir, 'disga_params_%07d' % step))
-        disGB_param = fluid.dygraph.load_dygraph(os.path.join(dir, 'disgb_params_%07d' % step))
-        disLA_param = fluid.dygraph.load_dygraph(os.path.join(dir, 'disla_params_%07d' % step))
-        disLB_param = fluid.dygraph.load_dygraph(os.path.join(dir, 'dislb_params_%07d' % step))
+        genA2B_param, _ = fluid.dygraph.load_dygraph(os.path.join(dir, 'gena2b_params_%07d' % step))
+        genB2A_param, _ = fluid.dygraph.load_dygraph(os.path.join(dir, 'genb2a_params_%07d' % step))
+        disGA_param, _ = fluid.dygraph.load_dygraph(os.path.join(dir, 'disga_params_%07d' % step))
+        disGB_param, _ = fluid.dygraph.load_dygraph(os.path.join(dir, 'disgb_params_%07d' % step))
+        disLA_param, _ = fluid.dygraph.load_dygraph(os.path.join(dir, 'disla_params_%07d' % step))
+        disLB_param, _ = fluid.dygraph.load_dygraph(os.path.join(dir, 'dislb_params_%07d' % step))
 
-        self.genA2B.load_dict(genA2B_param)
-        self.genB2A.load_dict(genB2A_param)
-        self.disGA.load_dict(disGA_param)
-        self.disGB.load_dict(disGB_param)
-        self.disLA.load_dict(disLA_param)
-        self.disLB.load_dict(disLB_param)
+        self.genA2B.set_dict(genA2B_param)
+        self.genB2A.set_dict(genB2A_param)
+        self.disGA.set_dict(disGA_param)
+        self.disGB.set_dict(disGB_param)
+        self.disLA.set_dict(disLA_param)
+        self.disLB.set_dict(disLB_param)
 
     def test(self):
-        model_list = glob(os.path.join(self.result_dir, self.dataset, 'model', '*.pt'))
-        if not len(model_list) == 0:
-            model_list.sort()
-            iter = int(model_list[-1].split('_')[-1].split('.')[0])
-            self.load(os.path.join(self.result_dir, self.dataset, 'model'), iter)
-            print(" [*] Load SUCCESS")
-        else:
-            print(" [*] Load FAILURE")
-            return
-
         place = fluid.CUDAPlace(0) if self.device == 'cuda' else fluid.CPUPlace()
 
-        with fluid.dygraph.guard(place):
+        with fluid.dygraph.guard(place):            
             self.genA2B.eval(), self.genB2A.eval()
-            for n, (real_A, _) in enumerate(self.testA_loader):
-                real_A = to_variable(real_A)
+            model_list = glob(os.path.join(self.result_dir, self.dataset, 'model', '*.pdparams'))
+            if not len(model_list) == 0:
+                model_list.sort()
+                iter = int(model_list[-1].split('_')[-1].split('.')[0])
+                self.load(os.path.join(self.result_dir, self.dataset, 'model'), iter)
+                print(" [*] Load SUCCESS")
+            else:
+                print(" [*] Load FAILURE")
+                return
+
+            for n, data in enumerate(self.testA_loader()):
+                real_A, _ = zip(*data)
+                
+                real_A = to_variable(np.array(real_A))
 
                 fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
 
@@ -453,8 +405,10 @@ class UGATIT(object) :
 
                 cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'A2B_%d.png' % (n + 1)), A2B * 255.0)
 
-            for n, (real_B, _) in enumerate(self.testB_loader):
-                real_B = to_variable(real_B)
+            for n, data in enumerate(self.testB_loader()):
+                real_B, _ = zip(*data)                             
+                
+                real_B = to_variable(np.array(real_B))
 
                 fake_B2A, _, fake_B2A_heatmap = self.genB2A(real_B)
 
