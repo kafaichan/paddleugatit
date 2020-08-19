@@ -59,7 +59,6 @@ class MyDatasetReader(object):
         img /= np.array([0.5, 0.5, 0.5])
         return img.transpose((2, 0, 1))
 
-
 def random_horizontal_flip(img):
     v = random.random()
     if v < 0.5:
