@@ -87,8 +87,8 @@ class UGATIT(object) :
         self.trainB = MyDatasetReader(os.path.join('dataset', self.dataset, 'trainB'), self.args).create_reader()
         self.testA = MyDatasetReader(os.path.join('dataset', self.dataset, 'testA'), self.args).create_reader()
         self.testB = MyDatasetReader(os.path.join('dataset', self.dataset, 'testB'), self.args).create_reader()
-        self.trainA_loader = paddle.batch(paddle.reader.shuffle(self.trainA, 30000), batch_size=self.batch_size)
-        self.trainB_loader = paddle.batch(paddle.reader.shuffle(self.trainB, 30000), batch_size=self.batch_size)
+        self.trainA_loader = paddle.batch(paddle.reader.shuffle(self.trainA, 34000), batch_size=self.batch_size)
+        self.trainB_loader = paddle.batch(paddle.reader.shuffle(self.trainB, 34000), batch_size=self.batch_size)
         self.testA_loader = paddle.batch(self.testA, batch_size=self.batch_size)
         self.testB_loader = paddle.batch(self.testB, batch_size=self.batch_size)
 
