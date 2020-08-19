@@ -210,14 +210,12 @@ class Discriminator(fluid.dygraph.Layer):
         for i in range(1, n_layers - 2):
             mult = 2 ** (i - 1)
             model += [ReflectionPad2d(1),
-                      SpectralNorm(Conv2D(ndf * mult, ndf * mult * 2, filter_size=4, stride=2, padding=0,
-                        bias_attr=fluid.ParamAttr(initializer=fluid.initializer.NormalInitializer(loc=0.0, scale=0.02)))),
+                      SpectralNorm(Conv2D(ndf * mult, ndf * mult * 2, filter_size=4, stride=2, padding=0, bias_attr=True)),
                       LeakyReLU(0.2)]
 
         mult = 2 ** (n_layers - 2 - 1)
         model += [ReflectionPad2d(1),
-                  SpectralNorm(Conv2D(ndf * mult, ndf * mult * 2, filter_size=4, stride=1, padding=0, 
-                    bias_attr=fluid.ParamAttr(initializer=fluid.initializer.NormalInitializer(loc=0.0, scale=0.02)))),
+                  SpectralNorm(Conv2D(ndf * mult, ndf * mult * 2, filter_size=4, stride=1, padding=0, bias_attr=True)),
                   LeakyReLU(0.2)]
 
         # Class Activation Map
