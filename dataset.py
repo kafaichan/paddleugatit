@@ -34,7 +34,7 @@ class MyDatasetReader(object):
                         path = os.path.join(root, fname)
                         img = pil_loader(path)
                         img = self.img_transform(img)
-                        yield (img,0)
+                        yield (img,path)
         return _batch_reader
 
     def img_transform(self, img):

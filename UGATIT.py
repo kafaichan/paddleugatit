@@ -87,8 +87,8 @@ class UGATIT(object) :
         self.trainB = MyDatasetReader(os.path.join('dataset', self.dataset, 'trainB'), self.args).create_reader()
         self.testA = MyDatasetReader(os.path.join('dataset', self.dataset, 'testA'), self.args).create_reader()
         self.testB = MyDatasetReader(os.path.join('dataset', self.dataset, 'testB'), self.args).create_reader()
-        self.trainA_loader = paddle.batch(paddle.reader.shuffle(self.trainA, 34000), batch_size=self.batch_size)
-        self.trainB_loader = paddle.batch(paddle.reader.shuffle(self.trainB, 34000), batch_size=self.batch_size)
+        self.trainA_loader = paddle.batch(paddle.reader.shuffle(self.trainA, 34), batch_size=self.batch_size)
+        self.trainB_loader = paddle.batch(paddle.reader.shuffle(self.trainB, 34), batch_size=self.batch_size)
         self.testA_loader = paddle.batch(self.testA, batch_size=self.batch_size)
         self.testB_loader = paddle.batch(self.testB, batch_size=self.batch_size)
 
@@ -144,17 +144,8 @@ class UGATIT(object) :
             print('training start !')
             start_time = time.time()
             for step in range(self.start_iter, self.iteration + 1):
-                try:
-                    real_A, _ = zip(*next(self.trainA_loader()))
-                except:
-                    trainA_iter = iter(self.trainA_loader())
-                    real_A, _ = zip(*next(trainA_iter))
-
-                try:
-                    real_B, _ = zip(*next(self.trainB_loader()))
-                except:
-                    trainB_iter = iter(self.trainB_loader())
-                    real_B, _ = zip(*next(trainB_iter))
+                real_A, _ = zip(*next(self.trainA_loader()))
+                real_B, _ = zip(*next(self.trainB_loader()))
 
                 real_A = np.array(real_A)
                 real_B = np.array(real_B)
@@ -247,17 +238,8 @@ class UGATIT(object) :
 
                     self.genA2B.eval(), self.genB2A.eval(), self.disGA.eval(), self.disGB.eval(), self.disLA.eval(), self.disLB.eval()
                     for _ in range(train_sample_num):
-                        try:
-                            real_A, _ = zip(*next(self.trainA_loader()))
-                        except:
-                            trainA_iter = iter(self.trainA_loader())
-                            real_A, _ = zip(*next(trainA_iter))
-
-                        try:
-                            real_B, _ = zip(*next(self.trainB_loader()))
-                        except:
-                            trainB_iter = iter(self.trainB_loader())
-                            real_B, _ = zip(*next(trainB_iter))
+                        real_A, _ = zip(*next(self.trainA_loader()))
+                        real_B, _ = zip(*next(self.trainB_loader()))
 
                         real_A = np.array(real_A)
                         real_B = np.array(real_B)
@@ -289,17 +271,8 @@ class UGATIT(object) :
                                                                    RGB2BGR(tensor2numpy(denorm(fake_B2A2B.numpy()[0])))), 0)), 1)
 
                     for _ in range(test_sample_num):
-                        try:
-                            real_A, _ = zip(*next(self.testA_loader()))
-                        except:
-                            testA_iter = iter(self.testA_loader())
-                            real_A, _ = zip(*next(testA_iter))
-
-                        try:
-                            real_B, _ = zip(*next(self.testB_loader()))
-                        except:
-                            testB_iter = iter(self.testB_loader())
-                            real_B, _ = zip(*next(testB_iter))
+                        real_A, _ = zip(*next(self.testA_loader()))
+                        real_B, _ = zip(*next(self.testB_loader()))
 
                         real_A = np.array(real_A)
                         real_B = np.array(real_B)
