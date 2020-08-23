@@ -76,24 +76,24 @@ class SpectralNorm(fluid.dygraph.Layer):
         return out
 
 
-class L1Loss():
+class L1Loss(fluid.dygraph.Layer):
     def __init__(self, reduction='mean'):
         super(L1Loss, self).__init__()
         self.reduction = reduction
 
-    def __call__(self, inputs, labels):
+    def forward(self, inputs, labels):
         if self.reduction == 'mean':
             diff = fluid.layers.abs(inputs-labels)
             return fluid.layers.reduce_mean(diff)
 
 
-class BCEWithLogitsLoss():
+class BCEWithLogitsLoss(fluid.dygraph.Layer):
     def __init__(self, weight=None, reduction='mean'):
         super(BCEWithLogitsLoss, self).__init__()
         self.weight = weight
         self.reduction = 'mean'
 
-    def __call__(self, x, label):
+    def forward(self, x, label):
         out = fluid.layers.sigmoid_cross_entropy_with_logits(x, label)
         if self.reduction == 'sum':
             return fluid.layers.reduce_sum(out)

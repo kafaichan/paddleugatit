@@ -25,17 +25,24 @@ class MyDatasetReader(object):
     def __init__(self, root, args):
         self.args = args
         self.root = root
+        self.imgs = list()
+        for root, _, fnames in sorted(os.walk(self.root)):
+            for fname in sorted(fnames):
+                if has_file_allowed_extension(fname, IMG_EXTENSIONS):
+                    path = os.path.join(self.root, fname)
+                    self.imgs.append(pil_loader(path))
+        self.num_img = len(self.imgs)
+        np.random.shuffle(self.imgs)
+        self.idx = 0
 
-    def create_reader(self):
-        def _batch_reader():
-            for root, _, fnames in sorted(os.walk(self.root)):
-                for fname in sorted(fnames):
-                    if has_file_allowed_extension(fname, IMG_EXTENSIONS):
-                        path = os.path.join(root, fname)
-                        img = pil_loader(path)
-                        img = self.img_transform(img)
-                        yield (img,path)
-        return _batch_reader
+    def get_batch(self, is_test=True):
+        result = []
+        for i in range(self.args.batch_size):
+            result.append(self.img_transform(self.imgs[self.idx]))
+            self.idx = (self.idx+1) % self.num_img
+            if(self.idx == 0 and is_test): np.random.shuffle(self.imgs)
+            else: break
+        return np.array(result)
 
     def img_transform(self, img):
         if self.args.phase == 'train':
@@ -93,13 +100,16 @@ def default_loader(path):
 
 
 if __name__ == "__main__":
-    root = os.path.join("dataset", "anime", "trainA")
+    root = os.path.join("dataset", "bundle", "trainA")
     args = Namespace(batch_size=1, phase='train', img_size=256)
 
-    train_dataset = paddle.batch(
-        paddle.reader.shuffle(MyDatasetReader(root, args).create_reader(), 30000), 
-        batch_size=1)
+    loader = MyDatasetReader(root, args)
+    cnt_map = {}
 
-    for i, data in enumerate(train_dataset()):
-        print(i)
-        print(data[0][0].shape)
+    for i in range(3400):
+        key = loader.get_batch()[0]
+        if key not in cnt_map:
+            cnt_map[key] = 1
+        else:
+            cnt_map[key] += 1
+    print(len(cnt_map.keys()))

@@ -1,10 +1,8 @@
-import time
-import paddle
-import paddle.fluid as fluid
-from networks import *
+
+from UGATIT import UGATIT
+import argparse
 from utils import *
 import paddle.fluid as fluid
-from UGATIT import UGATIT
 
 """parsing and configuration"""
 
