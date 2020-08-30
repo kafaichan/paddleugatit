@@ -2,7 +2,7 @@ import paddle
 from custom_op import *
 import paddle.fluid as fluid
 from paddle.fluid.dygraph import Conv2D, Linear, to_variable, InstanceNorm
-from paddle.fluid.initializer import ConstantInitializer
+from paddle.fluid.initializer import ConstantInitializer, NormalInitializer
 
 
 class ResnetGenerator(fluid.dygraph.Layer):
@@ -18,7 +18,8 @@ class ResnetGenerator(fluid.dygraph.Layer):
 
         DownBlock = []
         DownBlock += [ReflectionPad2d(3),
-                      Conv2D(num_channels=input_nc, num_filters=ngf, filter_size=7, stride=1, padding=0, bias_attr=False),
+                      Conv2D(num_channels=input_nc, num_filters=ngf, filter_size=7, stride=1, padding=0, bias_attr=False,
+                      param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02))),
                       InstanceNorm(ngf),
                       ReLU()]
 
@@ -27,7 +28,8 @@ class ResnetGenerator(fluid.dygraph.Layer):
         for i in range(n_downsampling):
             mult = 2**i
             DownBlock += [ReflectionPad2d(1),
-                          Conv2D(num_channels=ngf*mult, num_filters=ngf*mult*2, filter_size=3, stride=2, padding=0, bias_attr=False),
+                          Conv2D(num_channels=ngf*mult, num_filters=ngf*mult*2, filter_size=3, stride=2, padding=0, bias_attr=False,
+                          param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02))),
                           InstanceNorm(ngf * mult * 2),
                           ReLU()]
 
@@ -37,20 +39,20 @@ class ResnetGenerator(fluid.dygraph.Layer):
             DownBlock += [ResnetBlock(ngf*mult, use_bias=False)]
 
         # Class Activation Map
-        self.gap_fc = Linear(ngf*mult, 1, bias_attr=False)
-        self.gmp_fc = Linear(ngf*mult, 1, bias_attr=False)
-        self.conv1x1 = Conv2D(ngf*mult*2, ngf*mult, filter_size=1, stride=1, bias_attr=True)
+        self.gap_fc = Linear(ngf*mult, 1, bias_attr=False, param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02)))
+        self.gmp_fc = Linear(ngf*mult, 1, bias_attr=False, param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02)))
+        self.conv1x1 = Conv2D(ngf*mult*2, ngf*mult, filter_size=1, stride=1, bias_attr=True, param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02)))
         self.relu = ReLU()
 
         # Gamma, Beta block
         if self.light:
-            FC = [Linear(ngf * mult, ngf * mult, bias_attr=False, act='relu'),
-                  Linear(ngf * mult, ngf * mult, bias_attr=False, act='relu')]
+            FC = [Linear(ngf * mult, ngf * mult, bias_attr=False, act='relu', param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02))),
+                  Linear(ngf * mult, ngf * mult, bias_attr=False, act='relu', param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02)))]
         else:
-            FC = [Linear(img_size // mult * img_size // mult * ngf * mult, ngf * mult, bias_attr=False, act='relu'),
-                  Linear(ngf * mult, ngf * mult, bias_attr=False, act='relu')]
-        self.gamma = Linear(ngf * mult, ngf * mult, bias_attr=False)
-        self.beta = Linear(ngf * mult, ngf * mult, bias_attr=False)
+            FC = [Linear(img_size // mult * img_size // mult * ngf * mult, ngf * mult, bias_attr=False, act='relu', param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02))),
+                  Linear(ngf * mult, ngf * mult, bias_attr=False, act='relu', param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02)))]
+        self.gamma = Linear(ngf * mult, ngf * mult, bias_attr=False, param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02)))
+        self.beta = Linear(ngf * mult, ngf * mult, bias_attr=False, param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02)))
 
         # Up-Sampling Bottleneck
         for i in range(n_blocks):
@@ -62,12 +64,12 @@ class ResnetGenerator(fluid.dygraph.Layer):
             mult = 2**(n_downsampling - i)
             UpBlock2 += [Upsample(scale_factor=2, mode='NEAREST'),
                          ReflectionPad2d(1),
-                         Conv2D(ngf * mult, int(ngf * mult / 2), filter_size=3, stride=1, padding=0, bias_attr=False),
+                         Conv2D(ngf * mult, int(ngf * mult / 2), filter_size=3, stride=1, padding=0, bias_attr=False, param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02))),
                          ILN(int(ngf * mult / 2)),
                          ReLU()]
 
         UpBlock2 += [ReflectionPad2d(3),
-                     Conv2D(ngf, output_nc, filter_size=7, stride=1, padding=0, bias_attr=False),
+                     Conv2D(ngf, output_nc, filter_size=7, stride=1, padding=0, bias_attr=False, param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02))),
                      Tanh()]
 
         self.DownBlock = fluid.dygraph.Sequential(*DownBlock)
@@ -115,12 +117,12 @@ class ResnetBlock(fluid.dygraph.Layer):
         super(ResnetBlock, self).__init__()
         conv_block = []
         conv_block += [ReflectionPad2d(1),
-                       Conv2D(num_channels=dim, num_filters=dim, filter_size=3, stride=1, padding=0, bias_attr=use_bias),
+                       Conv2D(num_channels=dim, num_filters=dim, filter_size=3, stride=1, padding=0, bias_attr=use_bias, param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02))),
                        InstanceNorm(dim),
                        ReLU()]
 
         conv_block += [ReflectionPad2d(1),
-                       Conv2D(num_channels=dim, num_filters=dim, filter_size=3, stride=1, padding=0, bias_attr=use_bias),
+                       Conv2D(num_channels=dim, num_filters=dim, filter_size=3, stride=1, padding=0, bias_attr=use_bias, param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02))),
                        InstanceNorm(dim)]
 
         self.conv_block = fluid.dygraph.Sequential(*conv_block)
@@ -133,18 +135,21 @@ class ResnetBlock(fluid.dygraph.Layer):
 class ResnetAdaILNBlock(fluid.dygraph.Layer):
     def __init__(self, dim, use_bias):
         super(ResnetAdaILNBlock, self).__init__()
-        self.dim = dim
-        self.use_bias = use_bias
+        self.pad1 = ReflectionPad2d(1)
+        self.conv1 = Conv2D(dim, dim, 3, 1, 0, bias_attr=use_bias, param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02)))
         self.norm1 = adaILN(dim)
+        self.relu1 = ReLU()
+        self.pad2 = ReflectionPad2d(1)
+        self.conv2 = Conv2D(dim, dim, 3, 1, 0, bias_attr=use_bias, param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02)))
         self.norm2 = adaILN(dim)
 
     def forward(self, x, gamma, beta):
-        out = fluid.layers.pad2d(input=x, paddings=[1,1,1,1], mode='reflect')
-        out = fluid.layers.conv2d(input=out, num_filters=self.dim, filter_size=3, stride=1, padding=0, groups=1, bias_attr=self.use_bias)
+        out = self.pad1(x)
+        out = self.conv1(out)
         out = self.norm1(out, gamma, beta)
-        out = fluid.layers.relu(x=out)
-        out = fluid.layers.pad2d(input=out, paddings=[1,1,1,1], mode='reflect')
-        out = fluid.layers.conv2d(input=out, num_filters=self.dim, filter_size=3, stride=1, padding=0, groups=1, bias_attr=self.use_bias)
+        out = self.relu1(out)
+        out = self.pad2(out)
+        out = self.conv2(out)
         out = self.norm2(out, gamma, beta)
         return out + x
 
@@ -204,29 +209,29 @@ class Discriminator(fluid.dygraph.Layer):
     def __init__(self, input_nc, ndf=64, n_layers=5):
         super(Discriminator, self).__init__()
         model = [ReflectionPad2d(1),
-                 SpectralNorm(Conv2D(input_nc, ndf, filter_size=4, stride=2, padding=0, bias_attr=True)),
+                 SpectralNorm(Conv2D(input_nc, ndf, filter_size=4, stride=2, padding=0, bias_attr=True, param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02)))),
                  LeakyReLU(0.2)]
 
         for i in range(1, n_layers - 2):
             mult = 2 ** (i - 1)
             model += [ReflectionPad2d(1),
-                      SpectralNorm(Conv2D(ndf * mult, ndf * mult * 2, filter_size=4, stride=2, padding=0, bias_attr=True)),
+                      SpectralNorm(Conv2D(ndf * mult, ndf * mult * 2, filter_size=4, stride=2, padding=0, bias_attr=True, param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02)))),
                       LeakyReLU(0.2)]
 
         mult = 2 ** (n_layers - 2 - 1)
         model += [ReflectionPad2d(1),
-                  SpectralNorm(Conv2D(ndf * mult, ndf * mult * 2, filter_size=4, stride=1, padding=0, bias_attr=True)),
+                  SpectralNorm(Conv2D(ndf * mult, ndf * mult * 2, filter_size=4, stride=1, padding=0, bias_attr=True, param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02)))),
                   LeakyReLU(0.2)]
 
         # Class Activation Map
         mult = 2 ** (n_layers - 2)
-        self.gap_fc = SpectralNorm(Linear(ndf * mult, 1, bias_attr=False))
-        self.gmp_fc = SpectralNorm(Linear(ndf * mult, 1, bias_attr=False))
-        self.conv1x1 = Conv2D(ndf * mult * 2, ndf * mult, filter_size=1, stride=1, bias_attr=True)
+        self.gap_fc = SpectralNorm(Linear(ndf * mult, 1, bias_attr=False, param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02))))
+        self.gmp_fc = SpectralNorm(Linear(ndf * mult, 1, bias_attr=False, param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02))))
+        self.conv1x1 = Conv2D(ndf * mult * 2, ndf * mult, filter_size=1, stride=1, bias_attr=True, param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02)))
         self.leaky_relu = LeakyReLU(0.2)
 
         self.pad = ReflectionPad2d(1)
-        self.conv = SpectralNorm(Conv2D(ndf * mult, 1, filter_size=4, stride=1, padding=0, bias_attr=False))
+        self.conv = SpectralNorm(Conv2D(ndf * mult, 1, filter_size=4, stride=1, padding=0, bias_attr=False, param_attr=fluid.ParamAttr(initializer=NormalInitializer(0,0.02))))
 
         self.model = fluid.dygraph.Sequential(*model)
 

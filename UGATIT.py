@@ -298,7 +298,7 @@ class UGATIT(object) :
                 if step % self.save_freq == 0:
                     self.save(os.path.join(self.result_dir, self.dataset, 'model'), step)
 
-                if step % 100 == 0:
+                if step % 1000 == 0:
                     fluid.dygraph.save_dygraph(self.genA2B.state_dict(), os.path.join(self.result_dir, self.dataset, 'gena2b_params_latest'))
                     fluid.dygraph.save_dygraph(self.genB2A.state_dict(), os.path.join(self.result_dir, self.dataset, 'genb2a_params_latest'))
                     fluid.dygraph.save_dygraph(self.disGA.state_dict(), os.path.join(self.result_dir, self.dataset, 'disga_params_latest'))
