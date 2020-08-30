@@ -83,10 +83,14 @@ class UGATIT(object) :
 
     def build_model(self):
         """ DataLoader """
-        self.trainA = MyDatasetReader(os.path.join('dataset', self.dataset, 'trainA'), self.args)
-        self.trainB = MyDatasetReader(os.path.join('dataset', self.dataset, 'trainB'), self.args)
-        self.testA = MyDatasetReader(os.path.join('dataset', self.dataset, 'testA'), self.args)
-        self.testB = MyDatasetReader(os.path.join('dataset', self.dataset, 'testB'), self.args)
+        self.trainA = MyDatasetReader(os.path.join('dataset', self.dataset, 'trainA'), self.args).create_reader()
+        self.trainB = MyDatasetReader(os.path.join('dataset', self.dataset, 'trainB'), self.args).create_reader()
+        self.testA = MyDatasetReader(os.path.join('dataset', self.dataset, 'testA'), self.args).create_reader()
+        self.testB = MyDatasetReader(os.path.join('dataset', self.dataset, 'testB'), self.args).create_reader()
+        self.trainA_loader = paddle.batch(paddle.reader.shuffle(self.trainA, 3400), batch_size=self.batch_size)
+        self.trainB_loader = paddle.batch(paddle.reader.shuffle(self.trainB, 3400), batch_size=self.batch_size)
+        self.testA_loader = paddle.batch(paddle.reader.shuffle(self.testA, 100), batch_size=self.batch_size)
+        self.testB_loader = paddle.batch(paddle.reader.shuffle(self.testB, 100), batch_size=self.batch_size)
 
         """ Define Generator, Discriminator """
         self.genA2B = ResnetGenerator(input_nc=3, output_nc=3, ngf=self.ch, n_blocks=self.n_res, img_size=self.img_size, light=self.light)
@@ -140,8 +144,8 @@ class UGATIT(object) :
             print('training start !')
             start_time = time.time()
             for step in range(self.start_iter, self.iteration + 1):
-                real_A = self.trainA.get_batch()
-                real_B = self.trainB.get_batch()
+                real_A = np.array(next(self.trainA_loader()))
+                real_B = np.array(next(self.trainB_loader()))
 
                 real_A, real_B = to_variable(real_A), to_variable(real_B)
 
@@ -230,8 +234,8 @@ class UGATIT(object) :
 
                     self.genA2B.eval(), self.genB2A.eval(), self.disGA.eval(), self.disGB.eval(), self.disLA.eval(), self.disLB.eval()
                     for _ in range(train_sample_num):
-                        real_A = self.trainA.get_batch()
-                        real_B = self.trainB.get_batch()
+                        real_A = np.array(next(self.trainA_loader()))
+                        real_B = np.array(next(self.trainB_loader()))
 
                         real_A, real_B = to_variable(real_A), to_variable(real_B)
 
@@ -261,8 +265,8 @@ class UGATIT(object) :
                                                                    RGB2BGR(tensor2numpy(denorm(fake_B2A2B.numpy()[0])))), 0)), 1)
 
                     for _ in range(test_sample_num):
-                        real_A = self.testA.get_batch()
-                        real_B = self.testB.get_batch()
+                        real_A = np.array(next(self.testA_loader()))
+                        real_B = np.array(next(self.testB_loader()))
 
                         real_A, real_B = to_variable(real_A), to_variable(real_B)
 
@@ -345,11 +349,9 @@ class UGATIT(object) :
                 print(" [*] Load FAILURE")
                 return
 
-            batch_idx = 1
-            while True:
-                real_A = self.testA.get_batch(False)
+            for idx, data in enumerate(self.testA_loader()):
+                real_A = to_variable(np.array(data))
 
-                real_A = to_variable(real_A)                
                 fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
                 fake_A2B2A, _, fake_A2B2A_heatmap = self.genB2A(fake_A2B)
                 fake_A2A, _, fake_A2A_heatmap = self.genB2A(real_A)
@@ -361,16 +363,12 @@ class UGATIT(object) :
                                       RGB2BGR(tensor2numpy(denorm(fake_A2B.numpy()[0]))),
                                       cam(tensor2numpy(fake_A2B2A_heatmap.numpy()[0]), self.img_size),
                                       RGB2BGR(tensor2numpy(denorm(fake_A2B2A.numpy()[0])))), 0)
-                cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'A2B_%d.png' % (batch_idx)), A2B * 255.0)
-                batch_idx += 1
-                if self.testA.idx == 0: break
+                cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'A2B_%d.png' % (idx)), A2B * 255.0)
 
 
-            batch_idx = 1
-            while True:
-                real_B = self.testB.get_batch(False)
+            for idx, data in enumerate(self.testB_loader()):
+                real_B = to_variable(np.array(data))
 
-                real_B = to_variable(real_B)
                 fake_B2A, _, fake_B2A_heatmap = self.genB2A(real_B)
                 fake_B2A2B, _, fake_B2A2B_heatmap = self.genA2B(fake_B2A)
                 fake_B2B, _, fake_B2B_heatmap = self.genA2B(real_B)
@@ -383,6 +381,4 @@ class UGATIT(object) :
                                       cam(tensor2numpy(fake_B2A2B_heatmap.numpy()[0]), self.img_size),
                                       RGB2BGR(tensor2numpy(denorm(fake_B2A2B.numpy()[0])))), 0)
 
-                cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'B2A_%d.png' % (batch_idx)), B2A * 255.0)
-                batch_idx += 1
-                if self.testB.idx == 0: break
+                cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'B2A_%d.png' % (idx)), B2A * 255.0)

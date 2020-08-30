@@ -25,24 +25,17 @@ class MyDatasetReader(object):
     def __init__(self, root, args):
         self.args = args
         self.root = root
-        self.imgs = list()
-        for root, _, fnames in sorted(os.walk(self.root)):
-            for fname in sorted(fnames):
-                if has_file_allowed_extension(fname, IMG_EXTENSIONS):
-                    path = os.path.join(self.root, fname)
-                    self.imgs.append(pil_loader(path))
-        self.num_img = len(self.imgs)
-        np.random.shuffle(self.imgs)
-        self.idx = 0
 
-    def get_batch(self, is_test=True):
-        result = []
-        for i in range(self.args.batch_size):
-            result.append(self.img_transform(self.imgs[self.idx]))
-            self.idx = (self.idx+1) % self.num_img
-            if(self.idx == 0 and is_test): np.random.shuffle(self.imgs)
-            else: break
-        return np.array(result)
+    def create_reader(self):
+        def _batch_reader():
+            for root, _, fnames in sorted(os.walk(self.root)):
+                for fname in sorted(fnames):
+                    if has_file_allowed_extension(fname, IMG_EXTENSIONS):
+                        path = os.path.join(root, fname)
+                        img = pil_loader(path)
+                        img = self.img_transform(img)
+                        yield img
+        return _batch_reader
 
     def img_transform(self, img):
         if self.args.phase == 'train':
