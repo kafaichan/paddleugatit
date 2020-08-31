@@ -116,29 +116,45 @@ class UGATIT(object) :
                 self.load(os.path.join(self.result_dir, self.dataset, 'model'), self.start_iter)
                 print(" [*] Load SUCCESS")
 
-        if self.args.decay_flag:
-            self.G_optim = fluid.optimizer.AdamOptimizer(learning_rate=LinearLrCoolDown(self.args.lr, self.args.iteration // 2, begin=self.start_iter), 
-                parameter_list=list(itertools.chain(self.genA2B.parameters(), self.genB2A.parameters())), 
-                beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
+        # if self.args.decay_flag:
+        #     self.G_optim = fluid.optimizer.AdamOptimizer(learning_rate=LinearLrCoolDown(self.args.lr, self.args.iteration // 2, begin=self.start_iter), 
+        #         parameter_list=list(itertools.chain(self.genA2B.parameters(), self.genB2A.parameters())), 
+        #         beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
 
-            self.D_optim = fluid.optimizer.AdamOptimizer(learning_rate=LinearLrCoolDown(self.args.lr, self.args.iteration // 2, begin=self.start_iter),
-                parameter_list=list(itertools.chain(self.disGA.parameters(), self.disGB.parameters(), self.disLA.parameters(), self.disLB.parameters())), 
-                beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
-        else:
-            self.G_optim = fluid.optimizer.AdamOptimizer(learning_rate=self.args.lr,
-                parameter_list=list(itertools.chain(self.genA2B.parameters(), self.genB2A.parameters())), 
-                beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
+        #     self.D_optim = fluid.optimizer.AdamOptimizer(learning_rate=LinearLrCoolDown(self.args.lr, self.args.iteration // 2, begin=self.start_iter),
+        #         parameter_list=list(itertools.chain(self.disGA.parameters(), self.disGB.parameters(), self.disLA.parameters(), self.disLB.parameters())), 
+        #         beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
+        # else:
+        #     self.G_optim = fluid.optimizer.AdamOptimizer(learning_rate=self.args.lr,
+        #         parameter_list=list(itertools.chain(self.genA2B.parameters(), self.genB2A.parameters())), 
+        #         beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
 
-            self.D_optim = fluid.optimizer.AdamOptimizer(learning_rate=self.lr,
-                parameter_list=list(itertools.chain(self.disGA.parameters(), self.disGB.parameters(), self.disLA.parameters(), self.disLB.parameters())), 
-                beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
+        #     self.D_optim = fluid.optimizer.AdamOptimizer(learning_rate=self.lr,
+        #         parameter_list=list(itertools.chain(self.disGA.parameters(), self.disGB.parameters(), self.disLA.parameters(), self.disLB.parameters())), 
+        #         beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
+
+        self.genA2B_optim = fluid.optimizer.AdamOptimizer(learning_rate=self.args.lr, parameter_list=self.genA2B.parameters(), beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
+        self.genB2A_optim = fluid.optimizer.AdamOptimizer(learning_rate=self.args.lr, parameter_list=self.genB2A.parameters(), beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
+        self.disGA_optim = fluid.optimizer.AdamOptimizer(learning_rate=self.args.lr, parameter_list=self.disGA.parameters(), beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
+        self.disGB_optim = fluid.optimizer.AdamOptimizer(learning_rate=self.args.lr, parameter_list=self.disGB.parameters(), beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
+        self.disLA_optim = fluid.optimizer.AdamOptimizer(learning_rate=self.args.lr, parameter_list=self.disLA.parameters(), beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
+        self.disLB_optim = fluid.optimizer.AdamOptimizer(learning_rate=self.args.lr, parameter_list=self.disLB.parameters(), beta1=0.5, beta2=0.999, regularization=fluid.regularizer.L2Decay(self.weight_decay))
 
 
     def train(self):
-        place = fluid.CUDAPlace(0) if self.device == 'cuda' else fluid.CPUPlace()
+        place = fluid.CUDAPlace(fluid.dygraph.parallel.Env().dev_id) if self.device == 'cuda' else fluid.CPUPlace()
 
         with fluid.dygraph.guard(place):
-            self.genA2B.train(), self.genB2A.train(), self.disGA.train(), self.disGB.train(), self.disLA.train(), self.disLB.train()
+            strategy = fluid.dygraph.parallel.prepare_context()
+
+            self.genA2B = fluid.dygraph.parallel.DataParallel(self.genA2B, strategy)
+            self.genB2A = fluid.dygraph.parallel.DataParallel(self.genB2A, strategy)
+            self.disGA = fluid.dygraph.parallel.DataParallel(self.disGA, strategy)
+            self.disGB = fluid.dygraph.parallel.DataParallel(self.disGB, strategy)
+            self.disLA = fluid.dygraph.parallel.DataParallel(self.disLA, strategy)
+            self.disLB = fluid.dygraph.parallel.DataParallel(self.disLB, strategy)
+
+            # self.genA2B.train(), self.genB2A.train(), self.disGA.train(), self.disGB.train(), self.disLA.train(), self.disLB.train()
 
             # training loop
             print('training start !')
@@ -149,7 +165,6 @@ class UGATIT(object) :
 
                 real_A, real_B = to_variable(real_A), to_variable(real_B)
 
-                self.D_optim.clear_gradients()
                 fake_A2B, _, _ = self.genA2B(real_A)
                 fake_B2A, _, _ = self.genB2A(real_B)
 
@@ -178,11 +193,31 @@ class UGATIT(object) :
                 Discriminator_loss = D_loss_A + D_loss_B
 
                 # Update D
-                Discriminator_loss.backward()
-                self.D_optim.minimize(Discriminator_loss)
+                avg_disga_loss = self.disGA.scale_loss(Discriminator_loss)
+                avg_disga_loss.backward()
+                self.disGA.apply_collective_grads()
+                self.disGA_optim.minimize(avg_disga_loss)
+                self.disGA.clear_gradients()
+
+                avg_disgb_loss = self.disGB.scale_loss(Discriminator_loss)
+                avg_disgb_loss.backward()
+                self.disGB.apply_collective_grads()
+                self.disGB_optim.minimize(avg_disgb_loss)
+                self.disGB.clear_gradients()
+
+                avg_disla_loss = self.disLA.scale_loss(Discriminator_loss)
+                avg_disla_loss.backward()
+                self.disLA.apply_collective_grads()
+                self.disLA_optim.minimize(avg_disla_loss)
+                self.disLA.clear_gradients()
+
+                avg_dislb_loss = self.disLB.scale_loss(Discriminator_loss)
+                avg_dislb_loss.backward()
+                self.disLB.apply_collective_grads()
+                self.disLB_optim.minimize(avg_dislb_loss)
+                self.disLB.clear_gradients()
 
                 # Update G
-                self.G_optim.clear_gradients()
 
                 fake_A2B, fake_A2B_cam_logit, _ = self.genA2B(real_A)
                 fake_B2A, fake_B2A_cam_logit, _ = self.genB2A(real_B)
@@ -219,96 +254,106 @@ class UGATIT(object) :
                 G_loss_B = self.adv_weight * (G_ad_loss_GB + G_ad_cam_loss_GB + G_ad_loss_LB + G_ad_cam_loss_LB) + self.cycle_weight * G_recon_loss_B + self.identity_weight * G_identity_loss_B + self.cam_weight * G_cam_loss_B
 
                 Generator_loss = G_loss_A + G_loss_B
-                Generator_loss.backward()
-                self.G_optim.minimize(Generator_loss)
 
+                avg_ga2b_loss = self.genA2B.scale_loss(Generator_loss)
+                avg_ga2b_loss.backward()
+                self.genA2B.apply_collective_grads()
+                self.genA2B_optim.minimize(avg_ga2b_loss)
+                self.genA2B.clear_gradients()
+
+                avg_gb2a_loss = self.genB2A.scale_loss(Generator_loss)
+                avg_gb2a_loss.backward()
+                self.genB2A.apply_collective_grads()
+                self.genB2A_optim.minimize(avg_gb2a_loss)
+                self.genB2A.clear_gradients()
+                
                 self.genA2B.clip_rho(0, 1.0)
                 self.genB2A.clip_rho(0, 1.0)
 
                 print("[%5d/%5d] time: %4.4f d_loss: %.8f, g_loss: %.8f" % (step, self.iteration, time.time() - start_time, Discriminator_loss.numpy(), Generator_loss.numpy()))
-                if step % self.print_freq == 0:
-                    train_sample_num = 5
-                    test_sample_num = 5
-                    A2B = np.zeros((self.img_size * 7, 0, 3))
-                    B2A = np.zeros((self.img_size * 7, 0, 3))
+                # if step % self.print_freq == 0:
+                #     train_sample_num = 5
+                #     test_sample_num = 5
+                #     A2B = np.zeros((self.img_size * 7, 0, 3))
+                #     B2A = np.zeros((self.img_size * 7, 0, 3))
 
-                    self.genA2B.eval(), self.genB2A.eval(), self.disGA.eval(), self.disGB.eval(), self.disLA.eval(), self.disLB.eval()
-                    for _ in range(train_sample_num):
-                        real_A = np.array(next(self.trainA_loader()))
-                        real_B = np.array(next(self.trainB_loader()))
+                #     self.genA2B.eval(), self.genB2A.eval(), self.disGA.eval(), self.disGB.eval(), self.disLA.eval(), self.disLB.eval()
+                #     for _ in range(train_sample_num):
+                #         real_A = np.array(next(self.trainA_loader()))
+                #         real_B = np.array(next(self.trainB_loader()))
 
-                        real_A, real_B = to_variable(real_A), to_variable(real_B)
+                #         real_A, real_B = to_variable(real_A), to_variable(real_B)
 
-                        fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
-                        fake_B2A, _, fake_B2A_heatmap = self.genB2A(real_B)
+                #         fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
+                #         fake_B2A, _, fake_B2A_heatmap = self.genB2A(real_B)
 
-                        fake_A2B2A, _, fake_A2B2A_heatmap = self.genB2A(fake_A2B)
-                        fake_B2A2B, _, fake_B2A2B_heatmap = self.genA2B(fake_B2A)
+                #         fake_A2B2A, _, fake_A2B2A_heatmap = self.genB2A(fake_A2B)
+                #         fake_B2A2B, _, fake_B2A2B_heatmap = self.genA2B(fake_B2A)
 
-                        fake_A2A, _, fake_A2A_heatmap = self.genB2A(real_A)
-                        fake_B2B, _, fake_B2B_heatmap = self.genA2B(real_B)
+                #         fake_A2A, _, fake_A2A_heatmap = self.genB2A(real_A)
+                #         fake_B2B, _, fake_B2B_heatmap = self.genA2B(real_B)
 
-                        A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A.numpy()[0]))),
-                                                                   cam(tensor2numpy(fake_A2A_heatmap.numpy()[0]), self.img_size),
-                                                                   RGB2BGR(tensor2numpy(denorm(fake_A2A.numpy()[0]))),
-                                                                   cam(tensor2numpy(fake_A2B_heatmap.numpy()[0]), self.img_size),
-                                                                   RGB2BGR(tensor2numpy(denorm(fake_A2B.numpy()[0]))),
-                                                                   cam(tensor2numpy(fake_A2B2A_heatmap.numpy()[0]), self.img_size),
-                                                                   RGB2BGR(tensor2numpy(denorm(fake_A2B2A.numpy()[0])))), 0)), 1)
+                #         A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A.numpy()[0]))),
+                #                                                    cam(tensor2numpy(fake_A2A_heatmap.numpy()[0]), self.img_size),
+                #                                                    RGB2BGR(tensor2numpy(denorm(fake_A2A.numpy()[0]))),
+                #                                                    cam(tensor2numpy(fake_A2B_heatmap.numpy()[0]), self.img_size),
+                #                                                    RGB2BGR(tensor2numpy(denorm(fake_A2B.numpy()[0]))),
+                #                                                    cam(tensor2numpy(fake_A2B2A_heatmap.numpy()[0]), self.img_size),
+                #                                                    RGB2BGR(tensor2numpy(denorm(fake_A2B2A.numpy()[0])))), 0)), 1)
 
-                        B2A = np.concatenate((B2A, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B.numpy()[0]))),
-                                                                   cam(tensor2numpy(fake_B2B_heatmap.numpy()[0]), self.img_size),
-                                                                   RGB2BGR(tensor2numpy(denorm(fake_B2B.numpy()[0]))),
-                                                                   cam(tensor2numpy(fake_B2A_heatmap.numpy()[0]), self.img_size),
-                                                                   RGB2BGR(tensor2numpy(denorm(fake_B2A.numpy()[0]))),
-                                                                   cam(tensor2numpy(fake_B2A2B_heatmap.numpy()[0]), self.img_size),
-                                                                   RGB2BGR(tensor2numpy(denorm(fake_B2A2B.numpy()[0])))), 0)), 1)
+                #         B2A = np.concatenate((B2A, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B.numpy()[0]))),
+                #                                                    cam(tensor2numpy(fake_B2B_heatmap.numpy()[0]), self.img_size),
+                #                                                    RGB2BGR(tensor2numpy(denorm(fake_B2B.numpy()[0]))),
+                #                                                    cam(tensor2numpy(fake_B2A_heatmap.numpy()[0]), self.img_size),
+                #                                                    RGB2BGR(tensor2numpy(denorm(fake_B2A.numpy()[0]))),
+                #                                                    cam(tensor2numpy(fake_B2A2B_heatmap.numpy()[0]), self.img_size),
+                #                                                    RGB2BGR(tensor2numpy(denorm(fake_B2A2B.numpy()[0])))), 0)), 1)
 
-                    for _ in range(test_sample_num):
-                        real_A = np.array(next(self.testA_loader()))
-                        real_B = np.array(next(self.testB_loader()))
+                #     for _ in range(test_sample_num):
+                #         real_A = np.array(next(self.testA_loader()))
+                #         real_B = np.array(next(self.testB_loader()))
 
-                        real_A, real_B = to_variable(real_A), to_variable(real_B)
+                #         real_A, real_B = to_variable(real_A), to_variable(real_B)
 
-                        fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
-                        fake_B2A, _, fake_B2A_heatmap = self.genB2A(real_B)
+                #         fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
+                #         fake_B2A, _, fake_B2A_heatmap = self.genB2A(real_B)
 
-                        fake_A2B2A, _, fake_A2B2A_heatmap = self.genB2A(fake_A2B)
-                        fake_B2A2B, _, fake_B2A2B_heatmap = self.genA2B(fake_B2A)
+                #         fake_A2B2A, _, fake_A2B2A_heatmap = self.genB2A(fake_A2B)
+                #         fake_B2A2B, _, fake_B2A2B_heatmap = self.genA2B(fake_B2A)
 
-                        fake_A2A, _, fake_A2A_heatmap = self.genB2A(real_A)
-                        fake_B2B, _, fake_B2B_heatmap = self.genA2B(real_B)
+                #         fake_A2A, _, fake_A2A_heatmap = self.genB2A(real_A)
+                #         fake_B2B, _, fake_B2B_heatmap = self.genA2B(real_B)
 
-                        A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A.numpy()[0]))),
-                                                                   cam(tensor2numpy(fake_A2A_heatmap.numpy()[0]), self.img_size),
-                                                                   RGB2BGR(tensor2numpy(denorm(fake_A2A.numpy()[0]))),
-                                                                   cam(tensor2numpy(fake_A2B_heatmap.numpy()[0]), self.img_size),
-                                                                   RGB2BGR(tensor2numpy(denorm(fake_A2B.numpy()[0]))),
-                                                                   cam(tensor2numpy(fake_A2B2A_heatmap.numpy()[0]), self.img_size),
-                                                                   RGB2BGR(tensor2numpy(denorm(fake_A2B2A.numpy()[0])))), 0)), 1)
+                #         A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A.numpy()[0]))),
+                #                                                    cam(tensor2numpy(fake_A2A_heatmap.numpy()[0]), self.img_size),
+                #                                                    RGB2BGR(tensor2numpy(denorm(fake_A2A.numpy()[0]))),
+                #                                                    cam(tensor2numpy(fake_A2B_heatmap.numpy()[0]), self.img_size),
+                #                                                    RGB2BGR(tensor2numpy(denorm(fake_A2B.numpy()[0]))),
+                #                                                    cam(tensor2numpy(fake_A2B2A_heatmap.numpy()[0]), self.img_size),
+                #                                                    RGB2BGR(tensor2numpy(denorm(fake_A2B2A.numpy()[0])))), 0)), 1)
 
-                        B2A = np.concatenate((B2A, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B.numpy()[0]))),
-                                                                   cam(tensor2numpy(fake_B2B_heatmap.numpy()[0]), self.img_size),
-                                                                   RGB2BGR(tensor2numpy(denorm(fake_B2B.numpy()[0]))),
-                                                                   cam(tensor2numpy(fake_B2A_heatmap.numpy()[0]), self.img_size),
-                                                                   RGB2BGR(tensor2numpy(denorm(fake_B2A.numpy()[0]))),
-                                                                   cam(tensor2numpy(fake_B2A2B_heatmap.numpy()[0]), self.img_size),
-                                                                   RGB2BGR(tensor2numpy(denorm(fake_B2A2B.numpy()[0])))), 0)), 1)
+                #         B2A = np.concatenate((B2A, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B.numpy()[0]))),
+                #                                                    cam(tensor2numpy(fake_B2B_heatmap.numpy()[0]), self.img_size),
+                #                                                    RGB2BGR(tensor2numpy(denorm(fake_B2B.numpy()[0]))),
+                #                                                    cam(tensor2numpy(fake_B2A_heatmap.numpy()[0]), self.img_size),
+                #                                                    RGB2BGR(tensor2numpy(denorm(fake_B2A.numpy()[0]))),
+                #                                                    cam(tensor2numpy(fake_B2A2B_heatmap.numpy()[0]), self.img_size),
+                #                                                    RGB2BGR(tensor2numpy(denorm(fake_B2A2B.numpy()[0])))), 0)), 1)
 
-                    cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'img', 'A2B_%07d.png' % step), A2B * 255.0)
-                    cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'img', 'B2A_%07d.png' % step), B2A * 255.0)
-                    self.genA2B.train(), self.genB2A.train(), self.disGA.train(), self.disGB.train(), self.disLA.train(), self.disLB.train()
+                #     cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'img', 'A2B_%07d.png' % step), A2B * 255.0)
+                #     cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'img', 'B2A_%07d.png' % step), B2A * 255.0)
+                #     self.genA2B.train(), self.genB2A.train(), self.disGA.train(), self.disGB.train(), self.disLA.train(), self.disLB.train()
 
-                if step % self.save_freq == 0:
-                    self.save(os.path.join(self.result_dir, self.dataset, 'model'), step)
+                # if step % self.save_freq == 0:
+                #     self.save(os.path.join(self.result_dir, self.dataset, 'model'), step)
 
-                if step % 1000 == 0:
-                    fluid.dygraph.save_dygraph(self.genA2B.state_dict(), os.path.join(self.result_dir, self.dataset, 'gena2b_params_latest'))
-                    fluid.dygraph.save_dygraph(self.genB2A.state_dict(), os.path.join(self.result_dir, self.dataset, 'genb2a_params_latest'))
-                    fluid.dygraph.save_dygraph(self.disGA.state_dict(), os.path.join(self.result_dir, self.dataset, 'disga_params_latest'))
-                    fluid.dygraph.save_dygraph(self.disGB.state_dict(), os.path.join(self.result_dir, self.dataset, 'disgb_params_latest'))
-                    fluid.dygraph.save_dygraph(self.disLA.state_dict(), os.path.join(self.result_dir, self.dataset, 'disla_params_latest'))
-                    fluid.dygraph.save_dygraph(self.disLB.state_dict(), os.path.join(self.result_dir, self.dataset, 'dislb_params_latest'))
+                # if step % 1000 == 0:
+                #     fluid.dygraph.save_dygraph(self.genA2B.state_dict(), os.path.join(self.result_dir, self.dataset, 'gena2b_params_latest'))
+                #     fluid.dygraph.save_dygraph(self.genB2A.state_dict(), os.path.join(self.result_dir, self.dataset, 'genb2a_params_latest'))
+                #     fluid.dygraph.save_dygraph(self.disGA.state_dict(), os.path.join(self.result_dir, self.dataset, 'disga_params_latest'))
+                #     fluid.dygraph.save_dygraph(self.disGB.state_dict(), os.path.join(self.result_dir, self.dataset, 'disgb_params_latest'))
+                #     fluid.dygraph.save_dygraph(self.disLA.state_dict(), os.path.join(self.result_dir, self.dataset, 'disla_params_latest'))
+                #     fluid.dygraph.save_dygraph(self.disLB.state_dict(), os.path.join(self.result_dir, self.dataset, 'dislb_params_latest'))
                     
 
     def save(self, dir, step):
