@@ -315,20 +315,22 @@ class UGATIT(object) :
         fluid.dygraph.save_dygraph(self.disLA.state_dict(), os.path.join(dir, 'disla_params_%07d' % step))
         fluid.dygraph.save_dygraph(self.disLB.state_dict(), os.path.join(dir, 'dislb_params_%07d' % step))
 
-    def load(self, dir, step):
+    def load(self, dir, step, test=False):
         genA2B_param, _ = fluid.dygraph.load_dygraph(os.path.join(dir, 'gena2b_params_%07d' % step))
         genB2A_param, _ = fluid.dygraph.load_dygraph(os.path.join(dir, 'genb2a_params_%07d' % step))
-        disGA_param, _ = fluid.dygraph.load_dygraph(os.path.join(dir, 'disga_params_%07d' % step))
-        disGB_param, _ = fluid.dygraph.load_dygraph(os.path.join(dir, 'disgb_params_%07d' % step))
-        disLA_param, _ = fluid.dygraph.load_dygraph(os.path.join(dir, 'disla_params_%07d' % step))
-        disLB_param, _ = fluid.dygraph.load_dygraph(os.path.join(dir, 'dislb_params_%07d' % step))
-
         self.genA2B.set_dict(genA2B_param)
         self.genB2A.set_dict(genB2A_param)
-        self.disGA.set_dict(disGA_param)
-        self.disGB.set_dict(disGB_param)
-        self.disLA.set_dict(disLA_param)
-        self.disLB.set_dict(disLB_param)
+
+        if not test:
+            disGA_param, _ = fluid.dygraph.load_dygraph(os.path.join(dir, 'disga_params_%07d' % step))
+            disGB_param, _ = fluid.dygraph.load_dygraph(os.path.join(dir, 'disgb_params_%07d' % step))
+            disLA_param, _ = fluid.dygraph.load_dygraph(os.path.join(dir, 'disla_params_%07d' % step))
+            disLB_param, _ = fluid.dygraph.load_dygraph(os.path.join(dir, 'dislb_params_%07d' % step))
+            self.disGA.set_dict(disGA_param)
+            self.disGB.set_dict(disGB_param)
+            self.disLA.set_dict(disLA_param)
+            self.disLB.set_dict(disLB_param)
+
 
     def test(self):
         place = fluid.CUDAPlace(0) if self.device == 'cuda' else fluid.CPUPlace()
@@ -339,7 +341,7 @@ class UGATIT(object) :
             if not len(model_list) == 0:
                 model_list.sort()
                 iter = int(model_list[-1].split('_')[-1].split('.')[0])
-                self.load(os.path.join(self.result_dir, self.dataset, 'model'), iter)
+                self.load(os.path.join(self.result_dir, self.dataset, 'model'), iter, test=True)
                 print(" [*] Load SUCCESS")
             else:
                 print(" [*] Load FAILURE")
@@ -348,19 +350,9 @@ class UGATIT(object) :
             batch_idx = 1
             while True:
                 real_A = self.testA.get_batch(False)
-
                 real_A = to_variable(real_A)                
                 fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
-                fake_A2B2A, _, fake_A2B2A_heatmap = self.genB2A(fake_A2B)
-                fake_A2A, _, fake_A2A_heatmap = self.genB2A(real_A)
-
-                A2B = np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A.numpy()[0]))),
-                                      cam(tensor2numpy(fake_A2A_heatmap.numpy()[0]), self.img_size),
-                                      RGB2BGR(tensor2numpy(denorm(fake_A2A.numpy()[0]))),
-                                      cam(tensor2numpy(fake_A2B_heatmap.numpy()[0]), self.img_size),
-                                      RGB2BGR(tensor2numpy(denorm(fake_A2B.numpy()[0]))),
-                                      cam(tensor2numpy(fake_A2B2A_heatmap.numpy()[0]), self.img_size),
-                                      RGB2BGR(tensor2numpy(denorm(fake_A2B2A.numpy()[0])))), 0)
+                A2B = RGB2BGR(tensor2numpy(denorm(fake_A2B.numpy()[0])))
                 cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'A2B_%d.png' % (batch_idx)), A2B * 255.0)
                 batch_idx += 1
                 if self.testA.idx == 0: break
@@ -369,20 +361,9 @@ class UGATIT(object) :
             batch_idx = 1
             while True:
                 real_B = self.testB.get_batch(False)
-
                 real_B = to_variable(real_B)
                 fake_B2A, _, fake_B2A_heatmap = self.genB2A(real_B)
-                fake_B2A2B, _, fake_B2A2B_heatmap = self.genA2B(fake_B2A)
-                fake_B2B, _, fake_B2B_heatmap = self.genA2B(real_B)
-
-                B2A = np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B.numpy()[0]))),
-                                      cam(tensor2numpy(fake_B2B_heatmap.numpy()[0]), self.img_size),
-                                      RGB2BGR(tensor2numpy(denorm(fake_B2B.numpy()[0]))),
-                                      cam(tensor2numpy(fake_B2A_heatmap.numpy()[0]), self.img_size),
-                                      RGB2BGR(tensor2numpy(denorm(fake_B2A.numpy()[0]))),
-                                      cam(tensor2numpy(fake_B2A2B_heatmap.numpy()[0]), self.img_size),
-                                      RGB2BGR(tensor2numpy(denorm(fake_B2A2B.numpy()[0])))), 0)
-
+                B2A = RGB2BGR(tensor2numpy(denorm(fake_B2A.numpy()[0])))
                 cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'B2A_%d.png' % (batch_idx)), B2A * 255.0)
                 batch_idx += 1
                 if self.testB.idx == 0: break

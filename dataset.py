@@ -93,23 +93,3 @@ def pil_loader(path):
     with open(path, 'rb') as f:
         img = Image.open(f)
         return img.convert('RGB')
-
-
-def default_loader(path):
-    return pil_loader(path)
-
-
-if __name__ == "__main__":
-    root = os.path.join("dataset", "bundle", "trainA")
-    args = Namespace(batch_size=1, phase='train', img_size=256)
-
-    loader = MyDatasetReader(root, args)
-    cnt_map = {}
-
-    for i in range(3400):
-        key = loader.get_batch()[0]
-        if key not in cnt_map:
-            cnt_map[key] = 1
-        else:
-            cnt_map[key] += 1
-    print(len(cnt_map.keys()))
