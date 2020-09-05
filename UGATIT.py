@@ -352,8 +352,12 @@ class UGATIT(object) :
                 real_A = self.testA.get_batch(False)
                 real_A = to_variable(real_A)                
                 fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
+                fake_A2B2A, _, fake_A2B2A_heatmap = self.genB2A(fake_A2B)
+
                 A2B = RGB2BGR(tensor2numpy(denorm(fake_A2B.numpy()[0])))
+                A2B2A = RGB2BGR(tensor2numpy(denorm(fake_A2B2A.numpy()[0])))
                 cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'A2B_%d.png' % (batch_idx)), A2B * 255.0)
+                cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'A2B2A_%d.png' % (batch_idx)), A2B2A * 255.0)
                 batch_idx += 1
                 if self.testA.idx == 0: break
 
@@ -363,7 +367,12 @@ class UGATIT(object) :
                 real_B = self.testB.get_batch(False)
                 real_B = to_variable(real_B)
                 fake_B2A, _, fake_B2A_heatmap = self.genB2A(real_B)
+                fake_B2A2B, _, fake_B2A2B_heatmap = self.genA2B(fake_B2A)
+
                 B2A = RGB2BGR(tensor2numpy(denorm(fake_B2A.numpy()[0])))
+                B2A2B = RGB2BGR(tensor2numpy(denorm(fake_B2A2B.numpy()[0])))
                 cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'B2A_%d.png' % (batch_idx)), B2A * 255.0)
+                cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'B2A2B_%d.png' % (batch_idx)), B2A2B * 255.0)
+
                 batch_idx += 1
                 if self.testB.idx == 0: break

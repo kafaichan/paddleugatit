@@ -35,12 +35,12 @@ class MyDatasetReader(object):
         np.random.shuffle(self.imgs)
         self.idx = 0
 
-    def get_batch(self, is_test=True):
+    def get_batch(self, is_train=True):
         result = []
         for i in range(self.args.batch_size):
             result.append(self.img_transform(self.imgs[self.idx]))
             self.idx = (self.idx+1) % self.num_img
-            if(self.idx == 0 and is_test): np.random.shuffle(self.imgs)
+            if(self.idx == 0 and is_train): np.random.shuffle(self.imgs)
             else: break
         return np.array(result)
 
