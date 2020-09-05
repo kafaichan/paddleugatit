@@ -32,7 +32,7 @@ class MyDatasetReader(object):
                     path = os.path.join(self.root, fname)
                     self.imgs.append(pil_loader(path))
         self.num_img = len(self.imgs)
-        np.random.shuffle(self.imgs)
+        if self.args.phase == 'train': np.random.shuffle(self.imgs)
         self.idx = 0
 
     def get_batch(self, is_train=True):

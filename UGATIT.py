@@ -356,8 +356,8 @@ class UGATIT(object) :
 
                 A2B = RGB2BGR(tensor2numpy(denorm(fake_A2B.numpy()[0])))
                 A2B2A = RGB2BGR(tensor2numpy(denorm(fake_A2B2A.numpy()[0])))
-                cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'A2B_%d.png' % (batch_idx)), A2B * 255.0)
-                cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'A2B2A_%d.png' % (batch_idx)), A2B2A * 255.0)
+                cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'A2B_%03d.png' % (batch_idx)), A2B * 255.0)
+                cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'A2B2A_%03d.png' % (batch_idx)), A2B2A * 255.0)
                 batch_idx += 1
                 if self.testA.idx == 0: break
 
@@ -371,8 +371,8 @@ class UGATIT(object) :
 
                 B2A = RGB2BGR(tensor2numpy(denorm(fake_B2A.numpy()[0])))
                 B2A2B = RGB2BGR(tensor2numpy(denorm(fake_B2A2B.numpy()[0])))
-                cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'B2A_%d.png' % (batch_idx)), B2A * 255.0)
-                cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'B2A2B_%d.png' % (batch_idx)), B2A2B * 255.0)
+                cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'B2A_%03d.png' % (batch_idx)), B2A * 255.0)
+                cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'B2A2B_%03d.png' % (batch_idx)), B2A2B * 255.0)
 
                 batch_idx += 1
                 if self.testB.idx == 0: break
