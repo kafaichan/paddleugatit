@@ -1,0 +1,69 @@
+## selfie2anime
+
+100000
+mean_KID_mean :  13.795822720974686
+mean_KID_stddev :  0.42468932643532753
+
+200000
+mean_KID_mean :  13.991745334118605
+mean_KID_stddev :  0.5841178633272649
+
+300000
+mean_KID_mean :  14.053020097315311
+mean_KID_stddev :  0.2241749158129096
+
+400000
+mean_KID_mean :  11.58206344395876
+mean_KID_stddev :  0.44920250168070197
+
+500000
+mean_KID_mean :  13.737642865628006
+mean_KID_stddev :  0.45351467281579977
+
+600000
+mean_KID_mean :  12.718913167715073
+mean_KID_stddev :  0.4123162480536849
+
+630000
+mean_KID_mean :  13.230011105537413
+mean_KID_stddev :  0.3985005188733339
+
+688000
+mean_KID_mean :  11.306015780195594
+mean_KID_stddev :  0.3839078564196825
+
+#############################################################
+
+## anime2selfie
+
+100000
+mean_KID_mean :  -0.014772710390388707
+mean_KID_stddev :  0.08879859931766988
+
+200000
+mean_KID_mean :  14.401791494339705
+mean_KID_stddev :  0.3686041380278766
+
+300000
+mean_KID_mean :  14.342581491917372
+mean_KID_stddev :  0.39433471998199826
+
+400000
+mean_KID_mean :  13.571869779378176
+mean_KID_stddev :  0.3355552665889263
+
+500000
+mean_KID_mean :  13.564016032963991
+mean_KID_stddev :  0.3969033514149487
+
+600000
+mean_KID_mean :  14.614057995378971
+mean_KID_stddev :  0.5035589314065874
+
+630000
+mean_KID_mean :  14.848650645464659
+mean_KID_stddev :  0.46065975492820144
+
+688000
+mean_KID_mean :  15.893594741821287
+mean_KID_stddev :  0.47273745387792593

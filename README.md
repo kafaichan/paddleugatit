@@ -1,3 +1,4 @@
+## Code Structure
 
 
 1. Please download and extract selfanime data under folder dataset
@@ -16,6 +17,7 @@ python main.py --device=cuda --light True --dataset=bundle
 ## Testing
 - 下载测试脚本　```https://github.com/kafaichan/GAN_Metrics-Tensorflow``` 
 - 安装运行脚本需要的库
+- 运行GAN模型```python main.py --phase=test```生成图像
 - 根据GAN metric repo指示创建文件夹 
 - 将测试集testA, testB图像分别放入 ```real_source```, ```real_target```, 将results/anime/test/下前缀为A2B_的100幅图像放入fake文件夹 
 - 运行脚本得出A2B的mean_KID_mean值 
